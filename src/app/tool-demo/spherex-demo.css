@@ -1,0 +1,403 @@
+.spherex-demo {
+  --sx-bg: #0b0e14;
+  --sx-panel: #131824;
+  --sx-line: #232b3d;
+  --sx-text: #e6e9ef;
+  --sx-muted: #8a93a6;
+  --sx-accent: #6cb6ff;
+  --sx-warn: #ffb454;
+  color-scheme: dark;
+  margin: 0;
+  padding: 16px clamp(16px, 3vw, 40px) 40px;
+  min-height: 100dvh;
+  background: var(--sx-bg);
+  color: var(--sx-text);
+  font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.spherex-demo * {
+  box-sizing: border-box;
+}
+
+.spherex-demo [hidden] {
+  display: none !important;
+}
+
+.spherex-demo h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.2px;
+  font-family: var(--font-structed-beginning), var(--font-outfit), system-ui, sans-serif;
+  font-weight: 400;
+}
+
+.spherex-demo h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.spherex-demo .sx-tag {
+  font-size: 11px;
+  color: var(--sx-warn);
+  border: 1px solid var(--sx-warn);
+  border-radius: 4px;
+  padding: 1px 6px;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
+.spherex-demo .sx-sub,
+.spherex-demo .sx-muted {
+  color: var(--sx-muted);
+}
+
+.spherex-demo .sx-sub {
+  margin: 4px 0 14px;
+}
+
+.spherex-demo .sx-nav {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.spherex-demo .sx-nav a {
+  color: var(--sx-accent);
+  text-decoration: none;
+}
+
+.spherex-demo .sx-nav a:hover {
+  text-decoration: underline;
+}
+
+.spherex-demo .sx-controls {
+  background: var(--sx-panel);
+  border: 1px solid var(--sx-line);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.spherex-demo form,
+.spherex-demo .sx-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  align-items: center;
+}
+
+.spherex-demo .sx-row {
+  margin-top: 10px;
+}
+
+.spherex-demo form.sx-inline {
+  gap: 6px;
+}
+
+.spherex-demo label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.spherex-demo input,
+.spherex-demo select,
+.spherex-demo button {
+  font: inherit;
+  color: var(--sx-text);
+  background: #0e1320;
+  border: 1px solid var(--sx-line);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+
+.spherex-demo input[type="number"] {
+  width: 120px;
+}
+
+.spherex-demo input[type="range"] {
+  padding: 0;
+}
+
+.spherex-demo button {
+  cursor: pointer;
+  background: #1c2436;
+}
+
+.spherex-demo button:hover {
+  border-color: var(--sx-accent);
+}
+
+.spherex-demo button[type="submit"] {
+  background: var(--sx-accent);
+  color: #04121f;
+  border-color: var(--sx-accent);
+  font-weight: 600;
+}
+
+.spherex-demo .sx-status {
+  margin-top: 10px;
+  min-height: 1.4em;
+  color: var(--sx-accent);
+}
+
+.spherex-demo .sx-status.is-err {
+  color: #ff7b72;
+}
+
+.spherex-demo .sx-bar {
+  height: 8px;
+  background: var(--sx-line);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 10px;
+  max-width: 480px;
+}
+
+.spherex-demo .sx-bar > div {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #3d8fd1, var(--sx-accent), #9fe7ff);
+  transition: width 0.35s ease;
+}
+
+.spherex-demo .sx-bar.is-indeterminate > div {
+  width: 40%;
+  transition: none;
+  animation: sx-bar-slide 1.2s ease-in-out infinite;
+}
+
+.spherex-demo .sx-bar-label {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--sx-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes sx-bar-slide {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+.spherex-demo .sx-panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.spherex-demo .sx-panel {
+  background: var(--sx-panel);
+  border: 1px solid var(--sx-line);
+  border-radius: 10px;
+  padding: 14px;
+  min-width: 0;
+}
+
+.spherex-demo .sx-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.spherex-demo .sx-tabs button.is-on,
+.spherex-demo .sx-bands button.is-on,
+.spherex-demo .sx-ir-pick button.is-on {
+  border-color: var(--sx-accent);
+  color: var(--sx-accent);
+}
+
+.spherex-demo .sx-bands {
+  align-items: stretch;
+}
+
+.spherex-demo .sx-bands button {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  line-height: 1.2;
+  min-width: 4.5rem;
+}
+
+.spherex-demo .sx-band-um {
+  font-size: 10px;
+  color: var(--sx-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.spherex-demo .sx-bands button.is-on .sx-band-um {
+  color: color-mix(in srgb, var(--sx-accent) 80%, white);
+}
+
+.spherex-demo button.sx-quiet {
+  background: transparent;
+  color: var(--sx-muted);
+  border-style: dashed;
+}
+
+.spherex-demo button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.spherex-demo .sx-ir-pick {
+  margin: 0 0 8px;
+}
+
+.spherex-demo .sx-wave-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 10px;
+  width: min(100%, 480px);
+}
+
+.spherex-demo .sx-wave-label input[type="range"] {
+  flex: 1;
+}
+
+.spherex-demo .sx-det-hit {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #000;
+}
+
+.spherex-demo .sx-det-hit.is-on {
+  border-color: var(--sx-accent);
+}
+
+.spherex-demo .sx-det-hit img {
+  width: 100%;
+  aspect-ratio: 1;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.spherex-demo .sx-viewer {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  aspect-ratio: 1;
+  background: #000;
+  cursor: crosshair;
+}
+
+.spherex-demo .sx-viewer img,
+.spherex-demo img.sx-big {
+  width: 100%;
+  height: 100%;
+  display: block;
+  image-rendering: pixelated;
+}
+
+.spherex-demo img.sx-big {
+  max-width: 480px;
+  height: auto;
+  aspect-ratio: 1;
+  background: #000;
+}
+
+.spherex-demo .sx-cross {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--sx-accent), var(--sx-accent)) center / 1px 14% no-repeat,
+    linear-gradient(var(--sx-accent), var(--sx-accent)) center / 14% 1px no-repeat;
+  opacity: 0.35;
+}
+
+.spherex-demo .sx-pm {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 1.5px solid var(--sx-warn);
+  border-radius: 50%;
+  pointer-events: none;
+  display: none;
+}
+
+.spherex-demo .sx-pm.is-on {
+  display: block;
+}
+
+.spherex-demo .sx-meta {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--sx-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.spherex-demo .sx-meta b {
+  color: var(--sx-text);
+  font-weight: 600;
+}
+
+.spherex-demo .sx-hint {
+  color: var(--sx-muted);
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+
+.spherex-demo .sx-dets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.spherex-demo .sx-dets figure {
+  margin: 0;
+  font-size: 11px;
+  color: var(--sx-muted);
+  text-align: center;
+}
+
+.spherex-demo .sx-dets img {
+  width: 100%;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+  background: #000;
+  display: block;
+}
+
+.spherex-demo .sx-spec {
+  width: 100%;
+  max-width: 560px;
+  background: #0e1320;
+  border-radius: 6px;
+}
+
+.spherex-demo .sx-spec text {
+  fill: var(--sx-muted);
+  font-size: 11px;
+}
+
+.spherex-demo .sx-aladin {
+  width: 100%;
+  aspect-ratio: 1;
+  max-width: 480px;
+}
+
+.spherex-demo footer {
+  margin-top: 24px;
+  font-size: 12px;
+}
+
+.spherex-demo code {
+  background: #0e1320;
+  padding: 1px 4px;
+  border-radius: 4px;
+}

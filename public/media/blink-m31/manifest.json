@@ -1,0 +1,107 @@
+{
+  "target": {
+    "name": "Messier 031",
+    "ra": 10.68479,
+    "dec": 41.26906,
+    "kind": "Galaxy",
+    "obj_type": "G",
+    "redshift": -0.000991,
+    "resolver": "ned-cone",
+    "separation_arcsec": 0.02
+  },
+  "fov": 0.6,
+  "npix": 352,
+  "rgb": "rgb.png",
+  "detectors": [
+    {
+      "id": 1,
+      "label": "D1",
+      "band": "0.75\u20131.12 \u00b5m",
+      "stack": "d1.png"
+    },
+    {
+      "id": 2,
+      "label": "D2",
+      "band": "1.10\u20131.65 \u00b5m",
+      "stack": "d2.png"
+    },
+    {
+      "id": 3,
+      "label": "D3",
+      "band": "1.63\u20132.43 \u00b5m",
+      "stack": "d3.png"
+    },
+    {
+      "id": 4,
+      "label": "D4",
+      "band": "2.40\u20133.85 \u00b5m",
+      "stack": "d4.png"
+    },
+    {
+      "id": 5,
+      "label": "D5",
+      "band": "3.81\u20134.43 \u00b5m",
+      "stack": "d5.png"
+    },
+    {
+      "id": 6,
+      "label": "D6",
+      "band": "4.41\u20135.01 \u00b5m",
+      "stack": "d6.png"
+    }
+  ],
+  "epochs": [
+    {
+      "start": "2025-07-09",
+      "end": "2025-07-21",
+      "n": 10,
+      "png": "e0.png",
+      "target_px": [
+        176.0,
+        176.0
+      ]
+    },
+    {
+      "start": "2025-12-18",
+      "end": "2026-01-01",
+      "n": 12,
+      "png": "e4.png",
+      "target_px": [
+        176.0,
+        176.0
+      ]
+    },
+    {
+      "start": "2026-07-10",
+      "end": "2026-07-23",
+      "n": 12,
+      "png": "e5.png",
+      "target_px": [
+        176.0,
+        176.0
+      ]
+    }
+  ],
+  "band_views": {
+    "v0_d1": "f2.png",
+    "v0_d2": "f12.png",
+    "v0_d3": "f1.png",
+    "v0_d4": "f10.png",
+    "v0_d5": "f8.png",
+    "v0_d6": "f9.png",
+    "v1_d1": "f21.png",
+    "v1_d2": "f14.png",
+    "v1_d3": "f15.png",
+    "v1_d4": "f20.png",
+    "v1_d5": "f19.png",
+    "v1_d6": "f16.png",
+    "v2_d1": "f25.png",
+    "v2_d2": "f28.png",
+    "v2_d3": "f31.png",
+    "v2_d4": "f26.png",
+    "v2_d5": "f32.png",
+    "v2_d6": "f33.png"
+  },
+  "answer": "holds",
+  "hint": "Andromeda (M31) holds still here \u2014 a whole galaxy does not walk between SPHEREx passes. Brightness can still change with wavelength."
+}

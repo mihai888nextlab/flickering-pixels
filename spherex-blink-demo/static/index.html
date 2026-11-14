@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SPHEREx Blink</title>
+<link rel="stylesheet" href="/static/style.css">
+<script type="module">
+  import("https://cdn.jsdelivr.net/npm/aladin-lite@3.6.5/dist/aladin.js")
+    .then(({ default: A }) => {
+      window.A = A;
+      window.dispatchEvent(new Event("aladin-ready"));
+    })
+    .catch(() => {
+      document.getElementById("aladin").textContent = "Aladin Lite could not be downloaded. Reload the page to retry.";
+    });
+</script>
+</head>
+<body>
+<header>
+  <h1>SPHEREx Blink <span class="tag">prototype</span></h1>
+  <p class="sub">Type a sky position. See how it changes between SPHEREx passes. Live data from NASA/IPAC IRSA.</p>
+</header>
+
+<section class="controls">
+  <form id="form">
+    <label>RA (deg) <input id="ra" type="number" step="any" required></label>
+    <label>Dec (deg) <input id="dec" type="number" step="any" required></label>
+    <label>Field of view <input id="fov" type="range" min="0.05" max="0.4" step="0.01" value="0.1">
+      <output id="fovOut">0.10°</output></label>
+    <span id="colls"></span>
+    <button type="submit">Load</button>
+  </form>
+  <div class="row">
+    <span class="muted">Challenge targets:</span>
+    <span id="presets"></span>
+    <form id="nameForm" class="inline">
+      <input id="name" placeholder="…or object name (NED)">
+      <button>Resolve</button>
+    </form>
+  </div>
+  <div id="status" class="status"></div>
+</section>
+
+<main id="panels" hidden>
+  <section class="panel">
+    <h2>1 · Blink</h2>
+    <div class="tabs">
+      <button data-mode="epochs" class="on">6-month passes (stacked)</button>
+      <button data-mode="frames">Every frame</button>
+      <button data-mode="diff">Difference</button>
+    </div>
+    <div class="viewer" id="viewer">
+      <img id="blinkImg" alt="SPHEREx cutout">
+      <div class="cross"></div>
+      <div id="pmMarker" class="pm" title="Expected position from proper motion"></div>
+    </div>
+    <div class="row" id="blinkCtl">
+      <button id="play">⏸ Pause</button>
+      <label>Speed <input id="speed" type="range" min="100" max="1500" value="600" step="50"></label>
+      <input id="scrub" type="range" min="0" max="0" value="0">
+    </div>
+    <div class="row" id="diffCtl" hidden>
+      <label>A <select id="diffA"></select></label>
+      <label>B <select id="diffB"></select></label>
+      <span class="muted">B − A: white = only in B, black = only in A</span>
+    </div>
+    <div id="frameMeta" class="meta"></div>
+    <p class="hint">Click the image to plot the spectrum at that spot →</p>
+  </section>
+
+  <section class="panel">
+    <h2>2 · Infrared colour</h2>
+    <img id="rgbImg" class="big" alt="RGB composite">
+    <p class="muted">Blue = D1+D2 (0.75–1.6 µm), green = D3+D4 (1.6–3.8 µm), red = D5+D6 (3.8–5 µm). Cold brown dwarfs look red.</p>
+    <div id="dets" class="dets"></div>
+  </section>
+
+  <section class="panel">
+    <h2>3 · Spectrum</h2>
+    <svg id="spec" viewBox="0 0 520 300"></svg>
+    <div id="specMeta" class="meta">Click a pixel in the Blink panel.</div>
+  </section>
+
+  <section class="panel">
+    <h2>4 · Context (Aladin + Gaia + AllWISE)</h2>
+    <div id="aladin"></div>
+    <p class="muted">Base image: 2MASS colour. Orange = Gaia DR3, cyan = AllWISE. Served by CDS.</p>
+  </section>
+</main>
+
+<footer class="muted">
+  Data: SPHEREx Quick Release images via the IRSA SIA + cutout services.
+  Embed with <code>?ra=…&amp;dec=…&amp;fov=…</code> or <code>?preset=barnard</code>.
+</footer>
+<script src="/static/app.js"></script>
+</body>
+</html>
