@@ -489,7 +489,7 @@ function drawSpectrumChart(
 
   const bandFills = [
     "rgba(70, 130, 180, 0.07)",
-    "rgba(60, 150, 140, 0.08)",
+    "rgba(60, 110, 150, 0.08)",
     "rgba(90, 150, 70, 0.07)",
     "rgba(160, 140, 50, 0.08)",
     "rgba(170, 110, 55, 0.08)",
@@ -525,7 +525,7 @@ function drawSpectrumChart(
       </linearGradient>
       <linearGradient id="${gid("ir")}" x1="0" y1="0" x2="1" y2="0">
         <stop offset="0%" stop-color="rgba(55, 95, 140, 0.18)"/>
-        <stop offset="35%" stop-color="rgba(45, 120, 110, 0.12)"/>
+        <stop offset="35%" stop-color="rgba(45, 86, 120, 0.12)"/>
         <stop offset="70%" stop-color="rgba(130, 110, 45, 0.12)"/>
         <stop offset="100%" stop-color="rgba(140, 70, 55, 0.16)"/>
       </linearGradient>

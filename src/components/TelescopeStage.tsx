@@ -26,7 +26,7 @@ function smooth(value: number) {
   return t * t * (3 - 2 * t);
 }
 
-const STAR_COLORS = ["#e7edeb", "#c4f1e4", "#9be4ce", "#75bea8", "#d7c6e8"].map((hex) => new Color(hex));
+const STAR_COLORS = ["#e7eaed", "#c4ddf1", "#9bc3e4", "#759dbe", "#d7c6e8"].map((hex) => new Color(hex));
 
 function scatter(count: number, near: number, far: number) {
   const positions = new Float32Array(count * 3);
@@ -132,8 +132,8 @@ const AURORA: readonly GlowLayer[] = [
     y: 280,
     radius: 240,
     stops: [
-      [0, "rgba(92, 196, 176, 0.55)"],
-      [0.32, "rgba(24, 120, 112, 0.34)"],
+      [0, "rgba(92, 149, 196, 0.55)"],
+      [0.32, "rgba(24, 77, 120, 0.34)"],
       [0.66, "rgba(16, 62, 88, 0.16)"],
       [1, "rgba(20, 36, 44, 0)"],
     ],
@@ -191,8 +191,8 @@ const DUST: readonly GlowLayer[] = [
     y: 180,
     radius: 140,
     stops: [
-      [0, "rgba(46, 150, 136, 0.36)"],
-      [0.6, "rgba(6, 39, 38, 0.1)"],
+      [0, "rgba(46, 103, 150, 0.36)"],
+      [0.6, "rgba(6, 24, 39, 0.1)"],
       [1, "rgba(7, 12, 16, 0)"],
     ],
   },
@@ -304,7 +304,7 @@ function Sky({ progress }: { progress: RefObject<number> }) {
 
 function SpectralLight({ progress }: { progress: RefObject<number> }) {
   const light = useRef<PointLight>(null);
-  const color = useMemo(() => new Color("#9be4ce"), []);
+  const color = useMemo(() => new Color("#9bc3e4"), []);
 
   useFrame(({ clock }) => {
     if (!light.current) return;
@@ -358,7 +358,7 @@ function Earth({ progress }: { progress: RefObject<number> }) {
         <sphereGeometry args={[1, 48, 48]} />
         <meshBasicMaterial color="#7eb8e8" transparent opacity={0.16} depthWrite={false} side={DoubleSide} />
       </mesh>
-      <directionalLight position={[2.8, 2.2, 1.6]} intensity={2.8} color="#e7edeb" />
+      <directionalLight position={[2.8, 2.2, 1.6]} intensity={2.8} color="#e7eaed" />
     </group>
   );
 }
@@ -476,9 +476,9 @@ function Scene({ progress, drag }: { progress: RefObject<number>; drag: RefObjec
     <>
       <color attach="background" args={["#070c10"]} />
       <ambientLight intensity={0.38} />
-      <directionalLight position={[3.2, 4.4, 2.2]} intensity={2.6} color="#e7edeb" />
-      <directionalLight position={[-3.4, 1.1, -1.4]} intensity={1.8} color="#9be4ce" />
-      <directionalLight position={[0.2, -1.4, 2.6]} intensity={0.7} color="#c4f1e4" />
+      <directionalLight position={[3.2, 4.4, 2.2]} intensity={2.6} color="#e7eaed" />
+      <directionalLight position={[-3.4, 1.1, -1.4]} intensity={1.8} color="#9bc3e4" />
+      <directionalLight position={[0.2, -1.4, 2.6]} intensity={0.7} color="#c4ddf1" />
       <SpectralLight progress={progress} />
       <Sky progress={progress} />
       <Suspense fallback={null}>
