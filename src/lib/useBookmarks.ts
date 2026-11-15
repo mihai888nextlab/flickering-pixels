@@ -22,12 +22,42 @@ export type NewBookmark = {
   note?: string;
 };
 
-async function call<T>(input: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(input, { ...init, headers: { "content-type": "application/json", ...init?.headers } });
-  if (res.status === 204) return undefined as T;
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as { error?: string }).error || `Request failed (${res.status})`);
-  return body as T;
+/** Bookmarks live in this browser only (no accounts). */
+const STORAGE_KEY = "flickering-pixels:bookmarks";
+const MAX_BOOKMARKS = 200;
+
+function readStored(): Bookmark[] {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const list = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(list) ? (list as Bookmark[]).filter((b) => b && typeof b.id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStored(list: Bookmark[]): boolean {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    return false; // private window, storage full or blocked
+  }
+}
+
+function newId() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/** Same limits the old server API enforced. */
+function checkInput(input: NewBookmark): string | null {
+  const { ra, dec, fov } = input;
+  if (!Number.isFinite(ra) || ra < 0 || ra >= 360) return "RA must be between 0 and 360°";
+  if (!Number.isFinite(dec) || dec < -90 || dec > 90) return "Dec must be between -90 and 90°";
+  if (!Number.isFinite(fov) || fov <= 0 || fov > 10) return "FOV must be between 0 and 10°";
+  return null;
 }
 
 /** Angular distance in arcseconds (small-angle, fine for "is this the same spot?"). */
@@ -38,57 +68,68 @@ function sepArcsec(a: { ra: number; dec: number }, b: { ra: number; dec: number 
   return Math.hypot(dRa * cos, a.dec - b.dec) * 3600;
 }
 
-/** The signed-in user's saved sky positions (stored in Postgres via /api/bookmarks). */
+/** Saved sky positions, kept in this browser's localStorage. */
 export function useBookmarks() {
   const [items, setItems] = useState<Bookmark[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancel = false;
-    call<{ bookmarks: Bookmark[] }>("/api/bookmarks")
-      .then((r) => {
-        if (!cancel) setItems(r.bookmarks);
-      })
-      .catch((e: unknown) => {
-        if (!cancel) setError(e instanceof Error ? e.message : "Couldn't load bookmarks");
-      })
-      .finally(() => {
-        if (!cancel) setLoaded(true);
-      });
+    // localStorage only exists in the browser: read it after mount, and follow other tabs.
+    const sync = () => {
+      setItems(readStored());
+      setLoaded(true);
+    };
+    const id = window.setTimeout(sync, 0);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === STORAGE_KEY) sync();
+    };
+    window.addEventListener("storage", onStorage);
     return () => {
-      cancel = true;
+      window.clearTimeout(id);
+      window.removeEventListener("storage", onStorage);
     };
   }, []);
 
   const save = useCallback(async (input: NewBookmark) => {
     setError(null);
-    try {
-      const { bookmark } = await call<{ bookmark: Bookmark }>("/api/bookmarks", {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-      setItems((list) => [bookmark, ...list]);
-      return bookmark;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't save bookmark");
+    const problem = checkInput(input);
+    if (problem) {
+      setError(problem);
       return null;
     }
+    const current = readStored();
+    if (current.length >= MAX_BOOKMARKS) {
+      setError(`You can keep up to ${MAX_BOOKMARKS} bookmarks. Delete some first.`);
+      return null;
+    }
+    const bookmark: Bookmark = {
+      id: newId(),
+      label: (input.label || `${input.ra.toFixed(4)}, ${input.dec.toFixed(4)}`).slice(0, 120),
+      ra: input.ra,
+      dec: input.dec,
+      fov: input.fov,
+      kind: input.kind ?? "target",
+      note: input.note?.slice(0, 1000) ?? null,
+      createdAt: new Date().toISOString(),
+    };
+    const next = [bookmark, ...current];
+    if (!writeStored(next)) {
+      setError("This browser won't let the page save bookmarks (private window or storage blocked).");
+      return null;
+    }
+    setItems(next);
+    return bookmark;
   }, []);
 
   const remove = useCallback(async (id: string) => {
     setError(null);
-    let previous: Bookmark[] = [];
-    setItems((list) => {
-      previous = list;
-      return list.filter((b) => b.id !== id);
-    });
-    try {
-      await call<void>(`/api/bookmarks/${id}`, { method: "DELETE" });
-    } catch (e) {
-      setItems(previous); // put it back if the server refused
-      setError(e instanceof Error ? e.message : "Couldn't delete bookmark");
+    const next = readStored().filter((b) => b.id !== id);
+    if (!writeStored(next)) {
+      setError("Couldn't delete the bookmark: browser storage is blocked.");
+      return;
     }
+    setItems(next);
   }, []);
 
   /** An existing bookmark at (about) the same spot, within 2″. */

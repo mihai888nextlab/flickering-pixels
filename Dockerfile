@@ -1,5 +1,4 @@
 # Next.js app (Flickering Pixels) — production image.
-# Build targets:  runner (default, the web server)   migrate (one-shot: applies drizzle/ migrations)
 
 FROM node:24-alpine AS deps
 WORKDIR /app
@@ -14,16 +13,7 @@ COPY . .
 ARG SPHEREX_API_URL=http://api:8000
 ENV SPHEREX_API_URL=$SPHEREX_API_URL \
     NEXT_TELEMETRY_DISABLED=1
-# Placeholders so modules that read env at import time can be evaluated during the build.
-# Real values are passed at runtime and never baked into the image.
-RUN DATABASE_URL=postgres://build:build@localhost:5432/build \
-    BETTER_AUTH_SECRET=build-time-placeholder-not-used-at-runtime \
-    BETTER_AUTH_URL=http://localhost:3000 GOOGLE_CLIENT_ID=build GOOGLE_CLIENT_SECRET=build \
-    npm run build
-
-# One-shot migration runner (has drizzle-kit from devDependencies).
-FROM builder AS migrate
-CMD ["npx", "drizzle-kit", "migrate"]
+RUN npm run build
 
 FROM node:24-alpine AS runner
 WORKDIR /app

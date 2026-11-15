@@ -1,7 +1,6 @@
 import Header from "@/components/Header";
 import ToolMapClient from "@/components/ToolMapClient";
 import ToolPageShell from "@/components/ToolPageShell";
-import RequireUser from "@/components/RequireUser";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -15,9 +14,7 @@ export default function ToolPage() {
     <ToolPageShell>
       <Header resting />
       <main className="tool-page sky-map-page">
-        <RequireUser next="/tool" fallback={<p className="tool-auth-wait">Checking your session…</p>}>
-          <ToolMapClient />
-        </RequireUser>
+        <ToolMapClient />
       </main>
     </ToolPageShell>
   );

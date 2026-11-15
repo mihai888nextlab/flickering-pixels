@@ -1,7 +1,6 @@
 import Header from "@/components/Header";
 import ToolBench from "@/components/ToolBench";
 import ToolPageShell from "@/components/ToolPageShell";
-import RequireUser from "@/components/RequireUser";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -19,9 +18,7 @@ export default function DataAnalysisPage() {
           <span className="header-cue-arrow" aria-hidden="true" />
           Hover for header
         </p>
-        <RequireUser next="/data-analysis" fallback={<p className="tool-auth-wait">Checking your session…</p>}>
-          <ToolBench />
-        </RequireUser>
+        <ToolBench />
       </main>
     </ToolPageShell>
   );
