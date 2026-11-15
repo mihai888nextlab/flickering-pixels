@@ -79,7 +79,7 @@ export default function AuthButton({ variant = "bar" }: { variant?: "bar" | "men
         <div className="auth-menu" role="menu">
           <p className="auth-menu-name">{user.name}</p>
           <p className="auth-menu-email">{user.email}</p>
-          <Link role="menuitem" href="/tool#bookmarks" onClick={() => setOpen(false)}>
+          <Link role="menuitem" href="/data-analysis#bookmarks" onClick={() => setOpen(false)}>
             My bookmarks
           </Link>
           <button
@@ -89,7 +89,7 @@ export default function AuthButton({ variant = "bar" }: { variant?: "bar" | "men
               setOpen(false);
               await signOut();
               // The tools need a session: leave them; elsewhere just refresh the page state.
-              if (pathname?.startsWith("/tool")) router.replace("/login");
+              if (pathname?.startsWith("/tool") || pathname?.startsWith("/data-analysis")) router.replace("/login");
               else router.refresh();
             }}
           >

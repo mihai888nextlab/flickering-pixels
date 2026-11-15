@@ -63,7 +63,7 @@ export default function BlinkStage() {
               {manifest.target.dec}°). Flicker the visits and retune the wavelength.
             </p>
             <p className="deck-actions">
-              <DeckBtn href="/tool">Open the full tool</DeckBtn>
+              <DeckBtn href="/tool?enter=1">Open the sky map</DeckBtn>
             </p>
           </header>
 

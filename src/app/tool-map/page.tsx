@@ -1,23 +1,18 @@
-import Header from "@/components/Header";
-import SkyMap from "@/components/SkyMap";
-import ToolPageShell from "@/components/ToolPageShell";
-import RequireUser from "@/components/RequireUser";
-import type { Metadata } from "next";
+"use client";
 
-export const metadata: Metadata = {
-  title: "Sky map test · Flickering Pixels",
-  description: "Pan and zoom a grid of neighboring SPHEREx cutouts.",
-};
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-export default function ToolMapPage() {
+/** Former sky-map route — keep bookmarks working. */
+export default function ToolMapRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    const suffix = window.location.search || "";
+    router.replace(`/tool${suffix}`);
+  }, [router]);
   return (
-    <ToolPageShell>
-      <Header resting />
-      <main className="tool-page sky-map-page">
-        <RequireUser next="/tool-map" fallback={<p className="tool-auth-wait">Checking your session…</p>}>
-          <SkyMap />
-        </RequireUser>
-      </main>
-    </ToolPageShell>
+    <main className="tool-page sky-map-page" style={{ padding: "2rem", color: "#9bb0c2" }}>
+      Opening the sky map…
+    </main>
   );
 }

@@ -14,6 +14,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // `:path*` also matches the bare route (/tool, /tool-map, /tool-demo).
-  matcher: ["/tool/:path*", "/tool-map/:path*", "/tool-demo/:path*"],
+  // `:path*` also matches the bare route (/tool, /data-analysis, /tool-map, /tool-demo).
+  matcher: ["/tool/:path*", "/data-analysis/:path*", "/tool-map/:path*", "/tool-demo/:path*"],
 };

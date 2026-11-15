@@ -181,7 +181,7 @@ function parseCoords(text: string): { ra: number; dec: number } | null {
 function mapLink(v: View, time: TimeMode = "any") {
   const params = new URLSearchParams({ ra: v.ra.toFixed(5), dec: v.dec.toFixed(5), fov: v.fov.toFixed(2) });
   if (time !== "any") params.set("time", time);
-  return `${window.location.origin}/tool-map?${params.toString()}`;
+  return `${window.location.origin}/tool?${params.toString()}`;
 }
 
 /** Name -> position today (the API applies proper motion up to 2026). */
@@ -458,7 +458,33 @@ function cellsAround(view: View, radius: number): Cell[] {
   );
 }
 
-export default function SkyMap() {
+export type SkyMapTourState = {
+  timeMode: TimeMode;
+  showKnown: boolean;
+  targetName: string | null;
+  fov: number;
+  ready: boolean;
+  loading: boolean;
+};
+
+export type SkyMapTourApi = {
+  goPreset: (key: string) => Promise<void>;
+  goName: (name: string) => Promise<void>;
+  setTimeMode: (mode: TimeMode) => void;
+  setShowKnown: (on: boolean) => void;
+  zoomIn: () => void;
+  getState: () => SkyMapTourState;
+  ready: boolean;
+  loading: boolean;
+};
+
+export default function SkyMap({
+  onTourApi,
+  onRequestTour,
+}: {
+  onTourApi?: (api: SkyMapTourApi) => void;
+  onRequestTour?: () => void;
+} = {}) {
   const stageRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ id: number; x: number; y: number; view: View } | null>(null);
   const [view, setView] = useState<View | null>(null);
@@ -552,27 +578,51 @@ export default function SkyMap() {
     setInspect((cur) => (cur ? { ...cur, tab } : cur));
   }, []);
 
-  async function onSearch(event: FormEvent) {
-    event.preventDefault();
-    const text = query.trim();
-    if (!text || searching) return;
+  async function goName(text: string) {
+    const q = text.trim();
+    if (!q) throw new Error("Enter a name to search.");
+    setQuery(q);
     setSearchError(null);
-    let hit: Target;
-    const coords = parseCoords(text);
+    const coords = parseCoords(q);
     if (coords) {
       goTo({ name: `${coords.ra.toFixed(3)}°, ${coords.dec.toFixed(3)}°`, ...coords }, null);
       return;
     }
     setSearching(true);
     try {
-      hit = await resolveName(text);
+      const hit = await resolveName(q);
+      goTo(hit, { key: "target", value: q });
     } catch (err) {
-      setSearchError(err instanceof Error ? err.message : "Name resolve failed");
-      return;
+      const message = err instanceof Error ? err.message : "Name resolve failed";
+      setSearchError(message);
+      throw err instanceof Error ? err : new Error(message);
     } finally {
       setSearching(false);
     }
-    goTo(hit, { key: "target", value: text });
+  }
+
+  async function goPreset(key: string) {
+    const cfg = await spherexFetch<SpherexConfig>("/api/config");
+    const preset = cfg.presets[key];
+    if (!preset) throw new Error(`Unknown preset “${key}”.`);
+    setQuery(preset.name);
+    setSearchError(null);
+    const hit = await resolveName(preset.name).catch(() => ({
+      name: preset.name,
+      ra: preset.ra,
+      dec: preset.dec,
+    }));
+    goTo(hit, { key: "preset", value: key });
+  }
+
+  async function onSearch(event: FormEvent) {
+    event.preventDefault();
+    if (!query.trim() || searching) return;
+    try {
+      await goName(query);
+    } catch {
+      /* error already shown */
+    }
   }
 
   /**
@@ -666,6 +716,28 @@ export default function SkyMap() {
       };
     });
   }, []);
+
+  const mapReady = Boolean(view) && !searching;
+  useEffect(() => {
+    onTourApi?.({
+      goPreset,
+      goName,
+      setTimeMode,
+      setShowKnown,
+      zoomIn: () => zoomAt(1 / 1.5, 0, 0),
+      getState: () => ({
+        timeMode,
+        showKnown,
+        targetName: target?.name ?? null,
+        fov: view?.fov ?? FOV_START,
+        ready: mapReady,
+        loading: searching,
+      }),
+      ready: mapReady,
+      loading: searching,
+    });
+  }, [onTourApi, mapReady, searching, timeMode, showKnown, target, view?.fov]);
+
 
   useEffect(() => {
     const el = stageRef.current;
@@ -1053,7 +1125,7 @@ export default function SkyMap() {
   return (
     <div
       ref={stageRef}
-      className="sky-map"
+      className="sky-map" data-tour="map"
       role="application"
       aria-label="Sky map"
       tabIndex={0}
@@ -1245,9 +1317,9 @@ export default function SkyMap() {
         />
       ) : null}
       <div className="sky-map-hud">
-        <p className="sky-map-kicker">Sky map test · D2</p>
+        <p className="sky-map-kicker">Sky map · SPHEREx</p>
         <form
-          className="sky-map-search"
+          className="sky-map-search" data-tour="search"
           onSubmit={onSearch}
           onPointerDown={(event) => event.stopPropagation()}
         >
@@ -1275,7 +1347,7 @@ export default function SkyMap() {
               ? `Loading ${pending} photo${pending === 1 ? "" : "s"}…`
               : "Drag to move · scroll to zoom · right-click for details")}
         </p>
-        <div className="sky-map-zoom" onPointerDown={(event) => event.stopPropagation()}>
+        <div className="sky-map-zoom" data-tour="zoom" onPointerDown={(event) => event.stopPropagation()}>
           <button type="button" aria-label="Zoom in" onClick={() => zoomAt(1 / 1.5, 0, 0)}>
             +
           </button>
@@ -1285,6 +1357,7 @@ export default function SkyMap() {
           <div className="sky-map-tools">
             <button
               type="button"
+              data-tour="known"
               aria-pressed={showKnown}
               className={showKnown ? "is-on" : undefined}
               title="Ring fast Gaia stars and known asteroids, so you can tell them from new finds"
@@ -1294,6 +1367,7 @@ export default function SkyMap() {
             </button>
             <button
               type="button"
+              data-tour="finds"
               aria-expanded={findsOpen}
               className={findsOpen ? "is-on" : undefined}
               onClick={() => {
@@ -1306,7 +1380,7 @@ export default function SkyMap() {
           </div>
         </div>
         <div
-          className="sky-map-time"
+          className="sky-map-time" data-tour="time"
           role="group"
           aria-label="Which photos to show"
           onPointerDown={(event) => event.stopPropagation()}
@@ -1315,6 +1389,7 @@ export default function SkyMap() {
             <button
               key={option.id}
               type="button"
+              data-tour={option.id === "blink" || option.id === "compare" ? `time-${option.id}` : undefined}
               aria-pressed={timeMode === option.id}
               className={timeMode === option.id ? "is-on" : undefined}
               onClick={() => setTimeMode(option.id)}
@@ -1352,7 +1427,26 @@ export default function SkyMap() {
             )}
           </p>
         ) : null}
-        <a href={view ? `/tool?ra=${view.ra.toFixed(5)}&dec=${view.dec.toFixed(5)}` : "/tool"}>Back to tool</a>
+        <div className="sky-map-hud-links">
+          <a
+            data-tour="analyze"
+            href={
+              view
+                ? `/data-analysis?ra=${view.ra.toFixed(5)}&dec=${view.dec.toFixed(5)}&mode=expert`
+                : "/data-analysis?mode=expert"
+            }
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent("fp-tour-analyze"));
+            }}
+          >
+            Data analysis
+          </a>
+          {onRequestTour ? (
+            <button type="button" className="sky-map-tour-btn" onClick={onRequestTour}>
+              Guided tour
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

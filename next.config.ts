@@ -15,6 +15,13 @@ const nextConfig: NextConfig = {
       },
     },
   },
+  async redirects() {
+    return [
+      // Former sky-map URL.
+      { source: "/tool-map", destination: "/tool", permanent: false },
+      { source: "/tool-map/:path*", destination: "/tool/:path*", permanent: false },
+    ];
+  },
   async rewrites() {
     return [
       {

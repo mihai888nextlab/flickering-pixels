@@ -1,5 +1,5 @@
 import Header from "@/components/Header";
-import ToolBench from "@/components/ToolBench";
+import ToolMapClient from "@/components/ToolMapClient";
 import ToolPageShell from "@/components/ToolPageShell";
 import RequireUser from "@/components/RequireUser";
 import type { Metadata } from "next";
@@ -7,20 +7,16 @@ import type { Metadata } from "next";
 export const metadata: Metadata = {
   title: "The tool · Flickering Pixels",
   description:
-    "A preview of the Flickering Pixels sky tool: set an address, step through SPHEREx visits, and compare wavelengths.",
+    "Pan and zoom SPHEREx sky tiles, blink visits, and spot movers before opening data analysis.",
 };
 
 export default function ToolPage() {
   return (
     <ToolPageShell>
       <Header resting />
-      <main className="tool-page">
-        <p className="header-cue">
-          <span className="header-cue-arrow" aria-hidden="true" />
-          Hover for header
-        </p>
+      <main className="tool-page sky-map-page">
         <RequireUser next="/tool" fallback={<p className="tool-auth-wait">Checking your session…</p>}>
-          <ToolBench />
+          <ToolMapClient />
         </RequireUser>
       </main>
     </ToolPageShell>

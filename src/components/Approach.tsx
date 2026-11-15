@@ -33,7 +33,7 @@ export default function Approach() {
               Small on purpose: pick a place, load the visits, watch what moves.
             </p>
             <p className="deck-actions">
-              <DeckBtn href="/tool">Open the tool</DeckBtn>
+              <DeckBtn href="/tool?enter=1">Open the sky map</DeckBtn>
             </p>
           </header>
 

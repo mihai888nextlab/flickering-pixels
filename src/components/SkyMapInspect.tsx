@@ -263,7 +263,7 @@ export function SkyMapMenu({
     >
       {item("object", "What's here?")}
       {item("center", "Center here")}
-      <a role="menuitem" href={`/tool?ra=${point.ra.toFixed(5)}&dec=${point.dec.toFixed(5)}&fov=0.12`}>
+      <a role="menuitem" href={`/data-analysis?ra=${point.ra.toFixed(5)}&dec=${point.dec.toFixed(5)}&fov=0.12&mode=expert`}>
         <MenuIcon name="flicker" />
         Watch it flicker
       </a>

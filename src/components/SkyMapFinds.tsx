@@ -106,7 +106,7 @@ export function findLink(find: Find) {
     fov: Math.min(find.fov, 0.3).toFixed(2),
     time: "compare",
   });
-  return `${window.location.origin}/tool-map?${params.toString()}`;
+  return `${window.location.origin}/tool?${params.toString()}`;
 }
 
 function knownText(find: Find) {

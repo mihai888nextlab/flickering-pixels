@@ -10,6 +10,7 @@ const links = [
   { href: "/#approach", label: "Approach" },
   { href: "/#targets", label: "Targets" },
   { href: "/gallery", label: "Gallery" },
+  { href: "/data-analysis", label: "Data analysis" },
 ];
 
 const specks = [
@@ -133,7 +134,7 @@ export default function Header({ pinned = false, resting = false }: { pinned?: b
                   {link.label}
                 </a>
               ))}
-              <a className="btn" href="/tool" onClick={() => setOpen(false)}>
+              <a className="btn" href="/tool?enter=1" onClick={() => setOpen(false)}>
                 The tool
               </a>
               <AuthButton variant="menu" />
@@ -179,7 +180,7 @@ export default function Header({ pinned = false, resting = false }: { pinned?: b
 
             <div className="header-actions">
               <AuthButton />
-              <a className="btn header-cta" href="/tool">
+              <a className="btn header-cta" href="/tool?enter=1">
                 The tool
               </a>
               <button
@@ -208,7 +209,7 @@ export default function Header({ pinned = false, resting = false }: { pinned?: b
                   {link.label}
                 </a>
               ))}
-              <a className="btn" href="/tool" onClick={() => setOpen(false)}>
+              <a className="btn" href="/tool?enter=1" onClick={() => setOpen(false)}>
                 The tool
               </a>
               <AuthButton variant="menu" />

@@ -354,9 +354,13 @@ function syncToolQuery(parts: {
   ra?: number | string | null;
   dec?: number | string | null;
   fov?: number | null;
+  tour?: boolean | null;
 }) {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
+  url.searchParams.delete("enter");
+  if (parts.tour) url.searchParams.set("tour", "1");
+  else url.searchParams.delete("tour");
   url.searchParams.set("mode", parts.mode);
   if (parts.preset) url.searchParams.set("preset", parts.preset);
   else url.searchParams.delete("preset");
@@ -1136,7 +1140,8 @@ function ToolMetalDial({
 
 export default function ToolBench() {
   const [cfg, setCfg] = useState<SpherexConfig | null>(null);
-  const [mode, setMode] = useState<UserMode>("amateur");
+  const mode: UserMode = "expert";
+  const setMode = (_: UserMode) => {};
   const [ra, setRa] = useState("");
   const [dec, setDec] = useState("");
   const [nameQuery, setNameQuery] = useState("");
@@ -1182,19 +1187,13 @@ export default function ToolBench() {
   const pollTimerRef = useRef<number | null>(null);
   const activeJobRef = useRef<string | null>(null);
   const bootstrapped = useRef(false);
-  const isAmateur = mode === "amateur";
+  const isAmateur = false; // data-analysis is lab-only
 
   const detectorBands: DetectorBand[] = cfg?.detectors?.length
     ? cfg.detectors
     : FALLBACK_DETECTORS;
 
-  const activeDetectors = useMemo(
-    () =>
-      isAmateur
-        ? detectorBands.filter((d) => AMATEUR_DETECTORS.includes(d.id))
-        : detectorBands,
-    [detectorBands, isAmateur],
-  );
+  const activeDetectors = useMemo(() => detectorBands, [detectorBands]);
 
   const active = BANDS[band];
   const detectorId = detectorForWavelength(
@@ -1533,13 +1532,7 @@ export default function ToolBench() {
   }, []);
 
   const loadOptionsForMode = useCallback(
-    (nextMode: UserMode) => {
-      if (nextMode === "amateur") {
-        return {
-          detectors: AMATEUR_DETECTORS,
-          max_frames: AMATEUR_MAX_FRAMES,
-        };
-      }
+    (_nextMode: UserMode, _opts?: { allBands?: boolean }) => {
       const dets =
         expertDetectors.length === detectorBands.length
           ? []
@@ -1660,55 +1653,89 @@ export default function ToolBench() {
     };
   }, [result?.npix, image?.src]);
 
+  const bootstrapDefaultTarget = useCallback(
+    (nextMode: UserMode) => {
+      if (!cfg) return;
+      const params = new URLSearchParams(window.location.search);
+      const qPreset = params.get("preset");
+      const qName = params.get("name")?.trim() || null;
+      const qRa = params.get("ra");
+      const qDec = params.get("dec");
+      const qFov = params.get("fov");
+      const raN = qRa != null ? Number(qRa) : NaN;
+      const decN = qDec != null ? Number(qDec) : NaN;
+      const fovN = qFov != null ? clampToolFov(Number(qFov)) : null;
+
+      setBand(bandIndexFromUm(2.5));
+      setInfoTab("object");
+
+      if (qPreset && cfg.presets[qPreset]) {
+        const p = cfg.presets[qPreset];
+        setPresetKey(qPreset);
+        setNameQuery("");
+        setRa(formatCoord(p.ra, "ra"));
+        setDec(formatCoord(p.dec, "dec"));
+        setFov(fovN ?? p.fov);
+        void startLoad({ preset: qPreset, fov: fovN ?? p.fov }, nextMode);
+        return;
+      }
+
+      if (qName) {
+        const loadFov = fovN ?? 0.18;
+        setPresetKey(null);
+        setNameQuery(qName);
+        setFov(loadFov);
+        void (async () => {
+          setLoading(true);
+          setStatusErr(false);
+          setStatus(`Resolving “${qName}” via NED / SIMBAD / Gaia…`);
+          try {
+            const t = await spherexFetch<{ ra_2026: number; dec_2026: number }>(
+              `/api/resolve?name=${encodeURIComponent(qName)}`,
+            );
+            setRa(formatCoord(t.ra_2026, "ra"));
+            setDec(formatCoord(t.dec_2026, "dec"));
+            await startLoad({ name: qName, fov: loadFov }, nextMode);
+          } catch (err) {
+            setStatus(err instanceof Error ? err.message : "Name resolve failed");
+            setStatusErr(true);
+            setLoading(false);
+          }
+        })();
+        return;
+      }
+
+      if (Number.isFinite(raN) && Number.isFinite(decN)) {
+        const loadFov = fovN ?? 0.12;
+        setPresetKey(null);
+        setNameQuery("");
+        setRa(formatCoord(raN, "ra"));
+        setDec(formatCoord(decN, "dec"));
+        setFov(loadFov);
+        void startLoad({ ra: raN, dec: decN, fov: loadFov }, nextMode);
+        return;
+      }
+
+      const first = PRESET_ORDER.find((k) => cfg.presets[k]) ?? Object.keys(cfg.presets)[0];
+      if (!first) return;
+      const p = cfg.presets[first];
+      setPresetKey(first);
+      setRa(formatCoord(p.ra, "ra"));
+      setDec(formatCoord(p.dec, "dec"));
+      setFov(p.fov);
+      void startLoad({ preset: first, fov: p.fov }, nextMode);
+    },
+    [cfg, startLoad],
+  );
+
   useEffect(() => {
     if (!cfg || bootstrapped.current) return;
     bootstrapped.current = true;
 
     const params = new URLSearchParams(window.location.search);
-    const qMode = params.get("mode");
-    const nextMode: UserMode = qMode === "expert" ? "expert" : "amateur";
-    const qPreset = params.get("preset");
-    const qRa = params.get("ra");
-    const qDec = params.get("dec");
-    const qFov = params.get("fov");
-    const raN = qRa != null ? Number(qRa) : NaN;
-    const decN = qDec != null ? Number(qDec) : NaN;
-    const fovN = qFov != null ? clampToolFov(Number(qFov)) : null;
-
+    const nextMode: UserMode = "expert";
     setMode(nextMode);
-    setBand(AMATEUR_BAND);
-    if (nextMode === "amateur") setInfoTab("object");
-
-    if (qPreset && cfg.presets[qPreset]) {
-      const p = cfg.presets[qPreset];
-      setPresetKey(qPreset);
-      setNameQuery("");
-      setRa(formatCoord(p.ra, "ra"));
-      setDec(formatCoord(p.dec, "dec"));
-      setFov(fovN ?? p.fov);
-      void startLoad({ preset: qPreset, fov: fovN ?? p.fov }, nextMode);
-      return;
-    }
-
-    if (Number.isFinite(raN) && Number.isFinite(decN)) {
-      const loadFov = fovN ?? 0.12;
-      setPresetKey(null);
-      setNameQuery("");
-      setRa(formatCoord(raN, "ra"));
-      setDec(formatCoord(decN, "dec"));
-      setFov(loadFov);
-      void startLoad({ ra: raN, dec: decN, fov: loadFov }, nextMode);
-      return;
-    }
-
-    const first = PRESET_ORDER.find((k) => cfg.presets[k]) ?? Object.keys(cfg.presets)[0];
-    if (!first) return;
-    const p = cfg.presets[first];
-    setPresetKey(first);
-    setRa(formatCoord(p.ra, "ra"));
-    setDec(formatCoord(p.dec, "dec"));
-    setFov(p.fov);
-    void startLoad({ preset: first, fov: p.fov }, nextMode);
+    bootstrapDefaultTarget(nextMode);
     // Intentionally once after config arrives.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cfg]);
@@ -1790,17 +1817,7 @@ export default function ToolBench() {
     void startLoad({ preset: key, fov: p.fov });
   }
 
-  function switchMode(next: UserMode) {
-    if (next === mode) return;
-    setMode(next);
-    if (next === "amateur") {
-      setBand(AMATEUR_BAND);
-      setShowRgb(false);
-      setNameQuery("");
-      setInfoTab("object");
-    }
-    // Keep the current sky image until Lock — mode only changes controls / next fetch.
-  }
+
 
   async function onLock(event: FormEvent) {
     event.preventDefault();
@@ -2063,42 +2080,24 @@ export default function ToolBench() {
               />
               <div>
                 <p className="tool-side-label">Target</p>
-                <h1>{isAmateur ? "Explore" : "Lab"}</h1>
+                <h1>Data analysis</h1>
               </div>
             </div>
             <Link
               href={
                 presetKey
-                  ? `/tool-map?preset=${encodeURIComponent(presetKey)}`
+                  ? `/tool?preset=${encodeURIComponent(presetKey)}`
                   : result
-                    ? `/tool-map?ra=${result.target.ra.toFixed(5)}&dec=${result.target.dec.toFixed(5)}`
-                    : "/tool-map"
+                    ? `/tool?ra=${result.target.ra.toFixed(5)}&dec=${result.target.dec.toFixed(5)}`
+                    : "/tool"
               }
               className="tool-map-test-link"
             >
-              Map test
+              Sky map
             </Link>
           </header>
 
-          <div className="tool-mode-switch" role="group" aria-label="User mode">
-            <button
-              type="button"
-              className={isAmateur ? "is-on" : undefined}
-              onClick={() => switchMode("amateur")}
-            >
-              Amateur
-            </button>
-            <button
-              type="button"
-              className={!isAmateur ? "is-on" : undefined}
-              onClick={() => switchMode("expert")}
-            >
-              Expert
-            </button>
-          </div>
-
-          {!isAmateur ? (
-            <div className="tool-coord-bay" role="group" aria-label="Coordinates">
+          <div className="tool-coord-bay" role="group" aria-label="Coordinates">
               <label className="tool-coord">
                 <span className="tool-coord-tag">RA</span>
                 <span className="tool-coord-unit">deg</span>
@@ -2192,49 +2191,20 @@ export default function ToolBench() {
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="tool-coord-bay" role="group" aria-label="Object name">
-              <label className="tool-coord is-wide">
-                <span className="tool-coord-tag">Name</span>
-                <span className="tool-coord-unit">NED·SIM</span>
-                <input
-                  value={nameQuery}
-                  onChange={(event) => setNameQuery(event.target.value)}
-                  autoComplete="off"
-                  placeholder="M31, Deneb, Vega…"
-                />
-              </label>
-              <ToolMetalDial
-                id="tool-fov-dial-amateur"
-                label="FOV"
-                unit={`${fov.toFixed(2)}°`}
-                min={0.05}
-                max={0.4}
-                step={0.01}
-                value={fov}
-                onChange={setFov}
-                ticks={[
-                  { value: 0.05, label: "0.05" },
-                  { value: 0.12, label: "0.12" },
-                  { value: 0.25, label: "0.25" },
-                  { value: 0.4, label: "0.40" },
-                ]}
-              />
-            </div>
-          )}
+          
 
           <button className="tool-lock" type="submit" disabled={loading && !result}>
             <span className="tool-lock-ring" aria-hidden="true" />
             <span className="tool-lock-face">
               <strong>{loading ? "Sync" : "Lock"}</strong>
-              <small>{loading ? "IRSA" : isAmateur ? "Find" : "Acquire"}</small>
+              <small>{loading ? "IRSA" : "Acquire"}</small>
             </span>
           </button>
 
           <div className="tool-channel-bank">
             <div className="tool-channel-cap">
               <p className="tool-side-label">
-                {isAmateur ? "Starting locations" : "Preset targets"}
+                "Preset targets"
               </p>
               <span>{result ? "Latched" : loading ? "Seeking" : "Open"}</span>
             </div>
@@ -2342,10 +2312,10 @@ export default function ToolBench() {
         </form>
 
         <div className="tool-stage">
-          <div className="tool-wave" style={waveStyle}>
+          <div className="tool-wave" style={waveStyle} data-tour="wave">
             <div className="tool-wave-panel">
               {wavePanel === "bands" ? (
-                <div className="tool-band-bank" role="group" aria-label="Infrared wavelength bands">
+                <div className="tool-band-bank" role="group" aria-label="Infrared wavelength bands" data-tour="bands">
                   {activeDetectors.map((d) => {
                     const loaded = result?.detectors.some((x) => x.detector === d.id);
                     const on = stageExtra === "none" && !showRgb && detectorId === d.id;
@@ -2391,7 +2361,7 @@ export default function ToolBench() {
                   </button>
                 </div>
               ) : (
-                <div className="tool-band-bank tool-util-bank" role="group" aria-label="Stage utilities">
+                <div className="tool-band-bank tool-util-bank" role="group" aria-label="Stage utilities" data-tour="utils">
                   <button
                     type="button"
                     className={stageExtra === "diff" ? "tool-band-key is-on" : "tool-band-key"}
@@ -2489,6 +2459,7 @@ export default function ToolBench() {
               </div>
               <div
                 className={`tool-field is-live${isAmateur ? " is-amateur" : ""}${trackOn ? " is-tracking" : ""}`}
+                data-tour="field"
                 data-lenis-prevent
                 ref={attachField}
                 style={{ ["--field" as string]: showRgb ? RGB_VIEW_COLOR : active.color }}
@@ -2624,6 +2595,7 @@ export default function ToolBench() {
 
           <div
             className={hideTimelineWell ? "tool-timeline is-slim" : "tool-timeline"}
+            data-tour="timeline"
             tabIndex={0}
             aria-label={
               hideTimelineWell
@@ -2643,6 +2615,7 @@ export default function ToolBench() {
             <button
               type="button"
               className={playing ? "tool-blink is-on" : "tool-blink"}
+              data-tour="flicker"
               onClick={toggleFlicker}
               disabled={timelineCount < 2 || stageExtra === "stack" || stageExtra === "diff"}
             >
@@ -2719,7 +2692,7 @@ export default function ToolBench() {
           </div>
         </div>
 
-        <section className="tool-dash tool-info" style={waveStyle}>
+        <section className="tool-dash tool-info" style={waveStyle} data-tour="object">
           <div className="tool-dash-scroll" data-lenis-prevent>
           <header className="tool-dash-head">
             <div className="tool-dash-plate">
@@ -2982,7 +2955,7 @@ export default function ToolBench() {
                         <div className="tool-track-actions">
                           <Link
                             className="tool-spectrum-expand"
-                            href={`/tool-map?ra=${p.prediction.ra.toFixed(5)}&dec=${p.prediction.dec.toFixed(5)}&fov=0.2`}
+                            href={`/tool?ra=${p.prediction.ra.toFixed(5)}&dec=${p.prediction.dec.toFixed(5)}&fov=0.2`}
                           >
                             Open in sky map
                           </Link>
@@ -3131,7 +3104,7 @@ export default function ToolBench() {
                 )}
               </div>
 
-              <div className="tool-spectrum-pane">
+              <div className="tool-spectrum-pane" data-tour="spectrum">
                 <div className="tool-spectrum-head">
                   <div className="tool-dash-plate is-compact">
                     <i
