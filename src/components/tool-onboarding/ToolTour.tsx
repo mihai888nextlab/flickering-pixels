@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import {
   TOUR_STEPS,
@@ -23,6 +24,7 @@ export type MapTourActions = {
   setTimeMode: (mode: "any" | "first" | "last" | "blink" | "compare") => void;
   setShowKnown: (on: boolean) => void;
   zoomIn: () => void;
+  nudgeView: () => void;
   getState: () => SkyMapTourState | null;
   openAnalysis: (target?: string) => void;
   ready: boolean;
@@ -38,6 +40,9 @@ type Props = {
   onFinished: () => void;
 };
 
+const DOCK_W = 420;
+const DOCK_H = 300;
+
 function asList(spot: TourSpotlight | TourSpotlight[]) {
   return Array.isArray(spot) ? spot : [spot];
 }
@@ -49,27 +54,90 @@ function readHoles(spots: TourSpotlight[]): Hole[] {
     nodes.forEach((node) => {
       const r = node.getBoundingClientRect();
       if (r.width < 4 || r.height < 4) return;
-      const pad = spot === "map" ? 6 : 5;
+      const pad = spot === "map" ? 6 : spot === "globe" ? 8 : 5;
       holes.push({
         top: Math.max(6, r.top - pad),
         left: Math.max(6, r.left - pad),
         width: Math.min(window.innerWidth - 12, r.width + pad * 2),
         height: Math.min(window.innerHeight - 12, r.height + pad * 2),
-        radius: spot === "map" ? 14 : 10,
+        radius: spot === "map" ? 14 : spot === "globe" ? 16 : 10,
       });
     });
   }
   return holes;
 }
 
+/** Park the coach card near the primary control, or bottom-center for map-wide steps. */
+function dockPlacement(step: TourStep, holes: Hole[]): CSSProperties {
+  const width = Math.min(DOCK_W, window.innerWidth - 20);
+  const bottomish = step.dock === "bottom" || asList(step.spotlight)[0] === "map";
+  if (bottomish || !holes[0]) {
+    return {
+      left: "50%",
+      top: "auto",
+      bottom: "max(1rem, env(safe-area-inset-bottom))",
+      width,
+      transform: "translateX(-50%)",
+    };
+  }
+
+  const hole = holes[0];
+  const gap = 14;
+  let top = hole.top + hole.height + gap;
+  if (top + DOCK_H > window.innerHeight - 12) {
+    top = Math.max(12, hole.top - DOCK_H - gap);
+  }
+  let left = hole.left + hole.width / 2 - width / 2;
+  // Prefer sitting just to the right of compact HUD controls when they hug the left edge.
+  if (hole.left < 120 && hole.width < 280) {
+    left = hole.left + hole.width + gap;
+  }
+  left = Math.max(10, Math.min(left, window.innerWidth - width - 10));
+  top = Math.max(10, Math.min(top, window.innerHeight - Math.min(DOCK_H, window.innerHeight - 20)));
+
+  return {
+    left,
+    top,
+    bottom: "auto",
+    width,
+    transform: "none",
+  };
+}
+
 function norm(s: string) {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** Match tour targets like "m101" against resolved names ("Messier 101") or the typed query. */
+function targetMatches(haystack: string, match: string) {
+  const name = norm(haystack);
+  if (!name) return false;
+  return match
+    .split("|")
+    .map((part) => norm(part))
+    .some((part) => {
+      if (!part) return false;
+      if (name.includes(part)) return true;
+      const messier = /^m(\d+[a-z]?)$/.exec(part);
+      return Boolean(messier && name.includes(`messier${messier[1]}`));
+    });
+}
+
+function angSepDeg(a: { ra: number; dec: number }, b: { ra: number; dec: number }) {
+  const dRa = ((a.ra - b.ra + 540) % 360) - 180;
+  const cos = Math.cos((a.dec * Math.PI) / 180);
+  return Math.hypot(dRa * cos, a.dec - b.dec);
 }
 
 function requirementMet(
   require: TourRequire,
   state: SkyMapTourState | null,
-  flags: { ack: boolean; analyze: boolean; fovStart: number | null },
+  flags: {
+    ack: boolean;
+    analyze: boolean;
+    fovStart: number | null;
+    viewStart: { ra: number; dec: number } | null;
+  },
 ) {
   if (require.type === "ack") return flags.ack;
   if (require.type === "clickAnalyze") return flags.analyze;
@@ -77,15 +145,16 @@ function requirementMet(
   if (require.type === "timeMode") return state.timeMode === require.value;
   if (require.type === "showKnown") return state.showKnown === require.value;
   if (require.type === "target") {
-    const name = state.targetName ? norm(state.targetName) : "";
-    return require.match
-      .split("|")
-      .map((part) => norm(part))
-      .some((part) => part && name.includes(part));
+    const blobs = [state.targetName, state.targetQuery].filter(Boolean) as string[];
+    return blobs.some((blob) => targetMatches(blob, require.match));
   }
   if (require.type === "zoomIn") {
     if (flags.fovStart == null) return false;
     return state.fov <= flags.fovStart * 0.82 || state.fov <= 0.42;
+  }
+  if (require.type === "viewMoved") {
+    if (!flags.viewStart) return false;
+    return angSepDeg(flags.viewStart, { ra: state.ra, dec: state.dec }) > 2;
   }
   return false;
 }
@@ -100,6 +169,7 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
   const [taskDone, setTaskDone] = useState(false);
   const [pulseOk, setPulseOk] = useState(false);
   const fovStart = useRef<number | null>(null);
+  const viewStart = useRef<{ ra: number; dec: number } | null>(null);
   const appliedLoad = useRef<string | null>(null);
   const appliedCue = useRef<string | null>(null);
   const actionsRef = useRef(actions);
@@ -137,6 +207,7 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
       setAnalyzeHit(false);
       setTaskDone(false);
       fovStart.current = null;
+      viewStart.current = null;
       return;
     }
     setIndex(0);
@@ -168,6 +239,7 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
     setAnalyzeHit(false);
     setTaskDone(false);
     fovStart.current = null;
+    viewStart.current = null;
 
     const api = actionsRef.current;
     let cancelled = false;
@@ -207,16 +279,15 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
     const cue = step.cue;
     if (cue?.timeMode) api.setTimeMode(cue.timeMode);
     if (typeof cue?.showKnown === "boolean") api.setShowKnown(cue.showKnown);
-    // Known-movers task: start off so the user turns it on.
     if (step.require.type === "showKnown" && step.require.value === true) {
       api.setShowKnown(false);
     }
-    // Blink/compare tasks: start on All photos so the user must tap.
     if (step.require.type === "timeMode") {
       api.setTimeMode("any");
     }
     const state = api.getState();
     fovStart.current = state?.fov ?? null;
+    viewStart.current = state ? { ra: state.ra, dec: state.dec } : null;
     window.setTimeout(refreshHoles, 80);
   }, [active, step, ready, loading, refreshHoles]);
 
@@ -229,6 +300,7 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
         ack,
         analyze: analyzeHit,
         fovStart: fovStart.current,
+        viewStart: viewStart.current,
       });
       setTaskDone(met);
       if (met) setPulseOk(true);
@@ -241,11 +313,9 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
   if (!active || !step) return null;
 
   const total = TOUR_STEPS.length;
-  const isLast = step.id === "done";
-  const canAdvance =
-    !waiting &&
-    !loading &&
-    (taskDone || step.require.type === "ack");
+  const isFinale = step.id === "open-lab";
+  const dockStyle = dockPlacement(step, holes);
+  const anchored = dockStyle.transform === "none";
 
   function markComplete() {
     try {
@@ -256,32 +326,22 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
   }
 
   function goNext() {
-    if (step.require.type === "ack") {
-      setAck(true);
-      setTaskDone(true);
-      setPulseOk(true);
-      if (isLast) {
-        markComplete();
-        onFinished();
-        return;
-      }
-      setIndex((i) => Math.min(i + 1, total - 1));
-      return;
-    }
-
-    if (step.id === "open-lab") {
+    if (isFinale) {
       markComplete();
+      onFinished();
       actionsRef.current.openAnalysis("M1");
       return;
     }
 
-    if (!taskDone) return;
-
-    if (isLast) {
-      markComplete();
-      onFinished();
+    if (step.require.type === "ack") {
+      setAck(true);
+      setTaskDone(true);
+      setPulseOk(true);
+      setIndex((i) => Math.min(i + 1, total - 1));
       return;
     }
+
+    if (!taskDone) return;
     setIndex((i) => Math.min(i + 1, total - 1));
   }
 
@@ -296,8 +356,10 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
       } else if (step.require.type === "zoomIn") {
         api.zoomIn();
         api.zoomIn();
+      } else if (step.require.type === "viewMoved") {
+        api.nudgeView();
       } else if (step.require.type === "target") {
-        const name = step.require.match === "m101" ? "M101" : step.require.match === "m1" ? "M1" : step.require.match;
+        const name = step.id === "search" ? "M101" : step.require.match.split("|")[0] ?? step.require.match;
         await api.goName(name);
       } else if (step.require.type === "clickAnalyze" || step.id === "open-lab") {
         markComplete();
@@ -337,7 +399,16 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
         ))}
       </div>
 
-      <div className={pulseOk && taskDone ? "tour-rail-dock is-ok" : "tour-rail-dock"}>
+      <div
+        className={[
+          "tour-rail-dock",
+          pulseOk && taskDone ? "is-ok" : "",
+          anchored ? "is-anchored" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
+        style={dockStyle}
+      >
         <div className="tour-rail-progress" aria-hidden="true">
           {TOUR_STEPS.map((s, i) => (
             <i key={s.id} className={i < index ? "is-done" : i === index ? "is-on" : undefined} />
@@ -370,7 +441,7 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
             Skip tour
           </button>
           <div className="tour-rail-nav">
-            {step.assistLabel && !taskDone && step.require.type !== "ack" ? (
+            {step.assistLabel && !taskDone && step.require.type !== "ack" && !isFinale ? (
               <button type="button" className="tour-rail-assist" onClick={() => void runAssist()}>
                 {step.assistLabel}
               </button>
@@ -382,13 +453,13 @@ export default function ToolTour({ active, actions, onExit, onFinished }: Props)
               disabled={
                 waiting ||
                 loading ||
-                (step.require.type !== "ack" && !taskDone && step.id !== "open-lab")
+                (!isFinale && step.require.type !== "ack" && !taskDone)
               }
             >
-              {step.require.type === "ack" && !ack
-                ? step.nextLabel ?? "Continue"
-                : step.id === "open-lab"
-                  ? step.nextLabel
+              {isFinale
+                ? step.nextLabel
+                : step.require.type === "ack" && !ack
+                  ? step.nextLabel ?? "Continue"
                   : taskDone || step.require.type === "ack"
                     ? step.nextLabel ?? "Next"
                     : "Waiting…"}

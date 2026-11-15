@@ -183,7 +183,7 @@ export function FindsPanel({
       {finds.length === 0 ? (
         <p className="sky-map-finds-empty">
           Nothing flagged yet. In Red/cyan or Blink, right-click a red dot beside a cyan one and choose “Flag as
-          possible mover”.
+          mover”.
         </p>
       ) : (
         <ul data-lenis-prevent>

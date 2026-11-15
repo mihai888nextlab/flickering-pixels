@@ -96,8 +96,8 @@ export default function ModeGate({ open, onExpert, onAmateurSkip, onAmateurTour 
           <>
             <h2 id="tool-gate-title">Want a short tour?</h2>
             <p className="tool-gate-lead">
-              A few minutes on the sky map: Barnard's Star, blink time, known movers, a galaxy,
-              and the Crab — then Data analysis for bands and spectra.
+              A short sky-map tour: blink, red/cyan, search, the globe, right-click actions —
+              then Data analysis for bands and spectra.
             </p>
             <div className="tool-gate-actions">
               <button type="button" className="tool-gate-primary" onClick={onAmateurTour}>

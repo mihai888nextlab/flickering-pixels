@@ -9,7 +9,7 @@ export type InspectTab = "object" | "stars" | "visits";
 
 export type SourceMark = { ra: number; dec: number; catalog: "gaia" | "allwise" };
 
-export type MenuAction = "object" | "center" | "flag" | "share";
+export type MenuAction = "object" | "flag" | "share";
 
 /** Gaia / AllWISE cone radius for the Stars tab. */
 export const SOURCE_RADIUS_DEG = 1 / 60;
@@ -204,20 +204,14 @@ function Story({ children }: { children: ReactNode }) {
 }
 
 /** 16px line icons drawn with currentColor, so they follow the menu's hover color. */
-const MENU_ICONS: Record<MenuAction | "flicker", ReactNode> = {
+const MENU_ICONS: Record<MenuAction | "analyze", ReactNode> = {
   object: (
     <>
       <circle cx="8" cy="8" r="6.25" />
       <path d="M8 7.2v4M8 4.8v.01" />
     </>
   ),
-  center: (
-    <>
-      <circle cx="8" cy="8" r="4.5" />
-      <path d="M8 1v3M8 12v3M1 8h3M12 8h3" />
-    </>
-  ),
-  flicker: <path d="M8 1.5l1.6 4.9 4.9 1.6-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z" />,
+  analyze: <path d="M8 1.5l1.6 4.9 4.9 1.6-4.9 1.6L8 14.5l-1.6-4.9L1.5 8l4.9-1.6z" />,
   flag: <path d="M3.5 15V1.8M3.5 2.3h9l-2.2 3.2 2.2 3.2h-9" />,
   share: (
     <>
@@ -261,14 +255,13 @@ export function SkyMapMenu({
       onPointerDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
     >
-      {item("object", "What's here?")}
-      {item("center", "Center here")}
-      <a role="menuitem" href={`/data-analysis?ra=${point.ra.toFixed(5)}&dec=${point.dec.toFixed(5)}&fov=0.12&mode=expert`}>
-        <MenuIcon name="flicker" />
-        Watch it flicker
+      {item("object", "Information")}
+      <a role="menuitem" href={`/data-analysis?ra=${point.ra.toFixed(5)}&dec=${point.dec.toFixed(5)}&fov=0.12`}>
+        <MenuIcon name="analyze" />
+        Analyze
       </a>
-      {item("flag", "Flag as possible mover")}
-      {item("share", "Share this spot")}
+      {item("flag", "Flag as mover")}
+      {item("share", "Share")}
     </div>
   );
 }
@@ -420,8 +413,8 @@ export function SkyMapPointPanel({
               </Story>
               {visitData.passes.length > 1 ? (
                 <p className="sky-map-info-note">
-                  Comparing sweeps shows what moved or changed. Pick “Watch it flicker in the tool” from the
-                  right-click menu to try it.
+                  Comparing sweeps shows what moved or changed. Pick “Analyze” from the right-click menu to
+                  open this spot in the lab.
                 </p>
               ) : null}
             </div>

@@ -329,8 +329,6 @@ const PRESET_META: Record<string, { kind: string; summary: string; wise: string 
   },
 };
 
-const PRESET_ORDER = ["wise0855", "barnard", "eps_indi_b", "rw_aur", "r_dra"];
-
 function bandIndexFromUm(um: number) {
   const t = (um - WAVE_MIN) / (WAVE_MAX - WAVE_MIN);
   return Math.round(Math.max(0, Math.min(1, t)) * (BAND_COUNT - 1));
@@ -347,32 +345,32 @@ function clampToolFov(value: number) {
   return Math.min(0.4, Math.max(0.05, value));
 }
 
-/** Keep /tool shareable without Next navigation (replaceState only). */
+/** Keep /data-analysis shareable without Next navigation (replaceState only). */
 function syncToolQuery(parts: {
-  mode: UserMode;
-  preset?: string | null;
   ra?: number | string | null;
   dec?: number | string | null;
   fov?: number | null;
-  tour?: boolean | null;
+  name?: string | null;
 }) {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   url.searchParams.delete("enter");
-  if (parts.tour) url.searchParams.set("tour", "1");
-  else url.searchParams.delete("tour");
-  url.searchParams.set("mode", parts.mode);
-  if (parts.preset) url.searchParams.set("preset", parts.preset);
-  else url.searchParams.delete("preset");
+  url.searchParams.delete("tour");
+  url.searchParams.delete("mode");
+  url.searchParams.delete("preset");
 
   const raN = parts.ra == null || parts.ra === "" ? NaN : Number(parts.ra);
   const decN = parts.dec == null || parts.dec === "" ? NaN : Number(parts.dec);
   if (Number.isFinite(raN) && Number.isFinite(decN)) {
     url.searchParams.set("ra", raN.toFixed(5));
     url.searchParams.set("dec", decN.toFixed(5));
+    url.searchParams.delete("name");
   } else {
     url.searchParams.delete("ra");
     url.searchParams.delete("dec");
+    const name = parts.name?.trim();
+    if (name) url.searchParams.set("name", name);
+    else url.searchParams.delete("name");
   }
   if (parts.fov != null && Number.isFinite(parts.fov)) {
     url.searchParams.set("fov", clampToolFov(parts.fov).toFixed(2));
@@ -1148,7 +1146,7 @@ export default function ToolBench() {
   const [fov, setFov] = useState(0.12);
   const [expertDetectors, setExpertDetectors] = useState<number[]>([1, 2, 3, 4, 5, 6]);
   const [expertMaxFrames, setExpertMaxFrames] = useState(EXPERT_DEFAULT_MAX_FRAMES);
-  const [presetKey, setPresetKey] = useState<string | null>("wise0855");
+  const [presetKey, setPresetKey] = useState<string | null>(null);
   const [job, setJob] = useState<string | null>(null);
   const [result, setResult] = useState<SpherexResult | null>(null);
   const [status, setStatus] = useState("Connecting to SPHEREx archive…");
@@ -1559,11 +1557,10 @@ export default function ToolBench() {
       const bodyFov =
         typeof body.fov === "number" ? body.fov : Number(body.fov);
       syncToolQuery({
-        mode: nextMode,
-        preset,
         ra: Number.isFinite(bodyRa) ? bodyRa : (presetMeta?.ra ?? null),
         dec: Number.isFinite(bodyDec) ? bodyDec : (presetMeta?.dec ?? null),
         fov: Number.isFinite(bodyFov) ? bodyFov : (presetMeta?.fov ?? null),
+        name: typeof body.name === "string" ? body.name : null,
       });
       setResult(null);
       setJob(null);
@@ -1619,7 +1616,7 @@ export default function ToolBench() {
         const config = await spherexFetch<SpherexConfig>("/api/config");
         if (cancelled) return;
         setCfg(config);
-        setStatus("Pick a challenge target to start a quick blink.");
+        setStatus("Enter a name or RA/Dec, then Lock to load SPHEREx cutouts.");
         setStatusErr(false);
       } catch (err) {
         if (cancelled) return;
@@ -1716,14 +1713,11 @@ export default function ToolBench() {
         return;
       }
 
-      const first = PRESET_ORDER.find((k) => cfg.presets[k]) ?? Object.keys(cfg.presets)[0];
-      if (!first) return;
-      const p = cfg.presets[first];
-      setPresetKey(first);
-      setRa(formatCoord(p.ra, "ra"));
-      setDec(formatCoord(p.dec, "dec"));
-      setFov(p.fov);
-      void startLoad({ preset: first, fov: p.fov }, nextMode);
+      // No target in the URL — leave the lab idle until the user locks a field.
+      setPresetKey(null);
+      syncToolQuery({ ra: null, dec: null, fov: fovN, name: null });
+      setStatus("Enter a name or RA/Dec, then Lock to load SPHEREx cutouts.");
+      setStatusErr(false);
     },
     [cfg, startLoad],
   );
@@ -1806,19 +1800,6 @@ export default function ToolBench() {
     if (saved) setBookmarkNote(`Saved “${saved.label}”.`);
   }
 
-  function pickPreset(key: string) {
-    if (!cfg?.presets[key]) return;
-    const p = cfg.presets[key];
-    setPresetKey(key);
-    setNameQuery("");
-    setRa(formatCoord(p.ra, "ra"));
-    setDec(formatCoord(p.dec, "dec"));
-    setFov(p.fov);
-    void startLoad({ preset: key, fov: p.fov });
-  }
-
-
-
   async function onLock(event: FormEvent) {
     event.preventDefault();
     const query = nameQuery.trim();
@@ -1846,16 +1827,6 @@ export default function ToolBench() {
       return;
     }
 
-    if (isAmateur) {
-      if (presetKey) {
-        pickPreset(presetKey);
-        return;
-      }
-      setStatus("Enter an object name, or pick a starting location.");
-      setStatusErr(true);
-      return;
-    }
-
     const raN = Number(ra);
     const decN = Number(dec);
     if (!Number.isFinite(raN) || !Number.isFinite(decN)) {
@@ -1872,11 +1843,10 @@ export default function ToolBench() {
     const decN = Number(dec);
     const presetMeta = presetKey && cfg?.presets?.[presetKey] ? cfg.presets[presetKey] : null;
     syncToolQuery({
-      mode,
-      preset: presetKey,
       ra: Number.isFinite(raN) ? raN : (presetMeta?.ra ?? null),
       dec: Number.isFinite(decN) ? decN : (presetMeta?.dec ?? null),
       fov,
+      name: nameQuery.trim() || null,
     });
     const url = window.location.href;
     void navigator.clipboard.writeText(url).then(
@@ -2051,11 +2021,6 @@ export default function ToolBench() {
     }
   }
 
-  const presetEntries = PRESET_ORDER.filter((k) => cfg?.presets[k]).map((k) => [
-    k,
-    cfg!.presets[k],
-  ] as const);
-
   const spectrumPreview = useMemo(
     () => (spectrumData ? drawSpectrumChart(spectrumData, "spec-p", "preview") : null),
     [spectrumData],
@@ -2085,10 +2050,10 @@ export default function ToolBench() {
             </div>
             <Link
               href={
-                presetKey
-                  ? `/tool?preset=${encodeURIComponent(presetKey)}`
-                  : result
-                    ? `/tool?ra=${result.target.ra.toFixed(5)}&dec=${result.target.dec.toFixed(5)}`
+                result
+                  ? `/tool?ra=${result.target.ra.toFixed(5)}&dec=${result.target.dec.toFixed(5)}`
+                  : Number.isFinite(Number(ra)) && Number.isFinite(Number(dec))
+                    ? `/tool?ra=${Number(ra).toFixed(5)}&dec=${Number(dec).toFixed(5)}`
                     : "/tool"
               }
               className="tool-map-test-link"
@@ -2201,31 +2166,6 @@ export default function ToolBench() {
             </span>
           </button>
 
-          <div className="tool-channel-bank">
-            <div className="tool-channel-cap">
-              <p className="tool-side-label">
-                "Preset targets"
-              </p>
-              <span>{result ? "Latched" : loading ? "Seeking" : "Open"}</span>
-            </div>
-            <div className="tool-channels" role="list">
-              {presetEntries.map(([key, item], index) => (
-                <button
-                  key={key}
-                  type="button"
-                  role="listitem"
-                  className={presetKey === key ? "tool-channel is-on" : "tool-channel"}
-                  onClick={() => pickPreset(key)}
-                  disabled={loading && presetKey === key}
-                >
-                  <i aria-hidden="true" />
-                  <span className="tool-channel-idx">{String(index + 1).padStart(2, "0")}</span>
-                  <span className="tool-channel-name">{item.name}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
           <div className="tool-channel-bank tool-bookmarks" id="bookmarks">
             <div className="tool-channel-cap">
               <p className="tool-side-label">Bookmarks</p>
@@ -2290,7 +2230,12 @@ export default function ToolBench() {
             >
               {result && bookmarks.findNear(result.target) ? "★ Bookmarked" : "☆ Bookmark"}
             </button>
-            <button type="button" className="tool-side-btn" onClick={copyShareLink} disabled={!result && !presetKey}>
+            <button
+              type="button"
+              className="tool-side-btn"
+              onClick={copyShareLink}
+              disabled={!result && !(Number.isFinite(Number(ra)) && Number.isFinite(Number(dec)))}
+            >
               Copy share link
             </button>
             <button
@@ -2814,9 +2759,7 @@ export default function ToolBench() {
                             .filter(Boolean)
                             .join(" · ") ||
                           `Live SPHEREx cutouts for ${result.target.name}.`
-                        : isAmateur
-                          ? "Pick a starting location to light the sky."
-                          : "Lock a challenge address or sky position to light the instruments.")}
+                        : "Enter a name or RA/Dec, then Lock to load the field.")}
                   </p>
                 </div>
               </div>
@@ -2887,72 +2830,68 @@ export default function ToolBench() {
                   (() => {
                     const p = track.pred;
                     const fmt = (v: number) => v.toFixed(5);
+                    const speed = autoPick ? autoPick.speed_label : `${p.speed_arcsec_yr.toFixed(2)}″/yr`;
                     return (
-                      <>
+                      <div className="tool-track-card">
                         {autoPick ? (
                           <p className="tool-track-source">
                             {autoPick.name} · {autoPick.source}
                             {autoPick.kind === "star"
                               ? autoPick.confirmed
-                                ? ` · confirmed by SPHEREx (${autoPick.seen_passes}/${autoPick.marks.length} passes)`
+                                ? ` · SPHEREx ${autoPick.seen_passes}/${autoPick.marks.length} passes`
                                 : " · not visible to SPHEREx here"
                               : ""}
                           </p>
                         ) : null}
-                        <div className="tool-meter-row" role="group" aria-label="Predicted position">
-                          <div className="tool-meter">
-                            <span className="tool-meter-label">On</span>
-                            <output className="tool-meter-value">{p.prediction.date}</output>
-                          </div>
-                          <div className="tool-meter">
-                            <span className="tool-meter-label">± 1σ</span>
-                            <output className="tool-meter-value">{p.prediction.sigma_arcsec.toFixed(1)}″</output>
-                          </div>
-                        </div>
-                        <div className="tool-meter is-wide">
-                          <span className="tool-meter-label">RA / Dec</span>
-                          <output className="tool-meter-value">
+
+                        <section className="tool-track-section" aria-label="Predicted position">
+                          <p className="tool-track-section-label">Where in 6 months</p>
+                          <p className="tool-track-hero">
+                            <strong>{p.prediction.date}</strong>
+                            <span>± {p.prediction.sigma_arcsec.toFixed(1)}″</span>
+                          </p>
+                          <p className="tool-track-coords">
                             {fmt(p.prediction.ra)}°, {p.prediction.dec >= 0 ? "+" : ""}
                             {fmt(p.prediction.dec)}°
-                          </output>
-                        </div>
-                        <div className="tool-meter-row" role="group" aria-label="Fitted motion">
-                          <div className="tool-meter">
-                            <span className="tool-meter-label">Speed</span>
-                            <output className="tool-meter-value">
-                              {autoPick ? autoPick.speed_label : `${p.speed_arcsec_yr.toFixed(2)}″/yr`}
-                            </output>
+                          </p>
+                        </section>
+
+                        <section className="tool-track-section" aria-label="Fitted motion">
+                          <p className="tool-track-section-label">Motion</p>
+                          <div className="tool-track-facts">
+                            <div>
+                              <span>Speed</span>
+                              <strong>{speed}</strong>
+                            </div>
+                            <div>
+                              <span>Heading</span>
+                              <strong>
+                                {compassPoint(p.position_angle)} · {p.position_angle.toFixed(0)}°
+                              </strong>
+                            </div>
                           </div>
-                          <div className="tool-meter">
-                            <span className="tool-meter-label">Heading</span>
-                            <output className="tool-meter-value">
-                              {compassPoint(p.position_angle)} · {p.position_angle.toFixed(0)}°
-                            </output>
-                          </div>
-                        </div>
-                        {!isAmateur && autoPick?.kind !== "asteroid" ? (
-                          <div className="tool-meter is-wide">
-                            <span className="tool-meter-label">μ (mas/yr)</span>
-                            <output className="tool-meter-value">
-                              α* {p.pm_ra_cosdec.toFixed(0)} · δ {p.pm_dec.toFixed(0)} ± {p.pm_err.toFixed(0)} ·
-                              rms {p.rms_arcsec.toFixed(1)}″
-                            </output>
+                          {!isAmateur && autoPick?.kind !== "asteroid" ? (
+                            <p className="tool-track-meta">
+                              μ α* {p.pm_ra_cosdec.toFixed(0)} · δ {p.pm_dec.toFixed(0)} ± {p.pm_err.toFixed(0)}{" "}
+                              mas/yr · rms {p.rms_arcsec.toFixed(1)}″
+                            </p>
+                          ) : null}
+                          {p.catalog ? (
+                            <p className="tool-track-meta">
+                              {p.catalog.separation_arcsec.toFixed(1)}″ from catalog proper-motion position
+                            </p>
+                          ) : null}
+                        </section>
+
+                        {p.notes.length ? (
+                          <div className="tool-track-notes">
+                            {p.notes.map((note) => (
+                              <p key={note}>{note}</p>
+                            ))}
                           </div>
                         ) : null}
-                        {p.catalog ? (
-                          <div className="tool-meter is-wide">
-                            <span className="tool-meter-label">vs catalog</span>
-                            <output className="tool-meter-value">
-                              {p.catalog.separation_arcsec.toFixed(1)}″ from the catalog proper-motion position
-                            </output>
-                          </div>
-                        ) : null}
-                        <div className="tool-brief-lcd">
-                          {p.notes.map((note) => (
-                            <p key={note}>{note}</p>
-                          ))}
-                        </div>
-                        <div className="tool-track-actions">
+
+                        <div className="tool-track-actions tool-track-actions-bar">
                           <Link
                             className="tool-spectrum-expand"
                             href={`/tool?ra=${p.prediction.ra.toFixed(5)}&dec=${p.prediction.dec.toFixed(5)}&fov=0.2`}
@@ -2986,7 +2925,7 @@ export default function ToolBench() {
                             Copy RA/Dec
                           </button>
                         </div>
-                      </>
+                      </div>
                     );
                   })()
                 ) : (

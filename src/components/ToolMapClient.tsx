@@ -74,17 +74,17 @@ export default function ToolMapClient() {
     setTimeMode: (mode) => mapApiRef.current?.setTimeMode(mode),
     setShowKnown: (on) => mapApiRef.current?.setShowKnown(on),
     zoomIn: () => mapApiRef.current?.zoomIn(),
+    nudgeView: () => mapApiRef.current?.nudgeView(),
     getState: () => mapApiRef.current?.getState() ?? null,
     openAnalysis: (target) => {
       if (target) {
         const url = new URL("/data-analysis", window.location.origin);
-        url.searchParams.set("mode", "expert");
         url.searchParams.set("name", target);
         window.location.href = url.toString();
         return;
       }
       const viewLink = document.querySelector<HTMLAnchorElement>('a[data-tour="analyze"]');
-      window.location.href = viewLink?.href || "/data-analysis?mode=expert";
+      window.location.href = viewLink?.href || "/data-analysis";
     },
     ready: mapReady,
     loading: mapLoading || !mapApiRef.current,

@@ -2114,14 +2114,14 @@ html.tool-scroll-lock body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
   min-width: 0;
   min-height: 0;
 }
 
 .tool-object-stack {
   display: grid;
-  gap: 8px;
+  gap: 12px;
   min-width: 0;
   flex: 0 1 auto;
 }
@@ -2177,7 +2177,7 @@ html.tool-scroll-lock body {
 
 .tool-meter-rack {
   display: grid;
-  gap: 6px;
+  gap: 8px;
   flex: 1 1 auto;
   min-height: 0;
   align-content: start;
@@ -2186,7 +2186,7 @@ html.tool-scroll-lock body {
 .tool-meter-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -3138,34 +3138,171 @@ html.tool-scroll-lock body {
 
 .tool-track-pane {
   display: grid;
-  gap: 6px;
+  gap: 12px;
   min-width: 0;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Object tab is narrow — keep the title and mover buttons on separate rows. */
+.tool-track-pane .tool-spectrum-head {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
 }
 
 .tool-track-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+}
+
+.tool-track-pane .tool-spectrum-head .tool-track-actions {
+  justify-content: flex-start;
 }
 
 .tool-track-actions a.tool-spectrum-expand {
   text-decoration: none;
 }
 
+.tool-track-actions-bar {
+  padding-top: 2px;
+}
+
 /* Automatic mover picks (one chip per object found) */
 .tool-track-movers {
-  margin-bottom: 8px;
+  margin: 0;
 }
 
 .tool-track-movers .tool-spectrum-expand {
   font-variant-numeric: tabular-nums;
 }
 
-.tool-track-source {
-  margin: 0 0 6px;
-  color: rgba(170, 198, 214, 0.78);
-  font-size: 0.72rem;
+.tool-track-card {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--tool-r);
+  border: 1px solid rgba(92, 225, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(12, 22, 30, 0.92), rgba(6, 10, 14, 0.96));
+}
+
+.tool-track-section {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tool-track-section-label {
+  margin: 0;
+  color: rgba(170, 198, 214, 0.7);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.tool-track-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+  margin: 0;
+  color: rgba(236, 242, 248, 0.96);
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.tool-track-hero strong {
+  font-weight: 800;
   letter-spacing: 0.02em;
+}
+
+.tool-track-hero span {
+  color: rgba(170, 198, 214, 0.78);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tool-track-coords {
+  margin: 0;
+  color: var(--wave-glow);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.tool-track-facts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tool-track-facts > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: calc(var(--tool-r) - 1px);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.tool-track-facts span {
+  color: rgba(170, 198, 214, 0.62);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tool-track-facts strong {
+  color: rgba(236, 242, 248, 0.94);
+  font-size: 0.84rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.tool-track-meta {
+  margin: 2px 0 0;
+  color: rgba(170, 198, 214, 0.62);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.tool-track-notes {
+  display: grid;
+  gap: 6px;
+  padding: 10px 11px;
+  border-radius: calc(var(--tool-r) - 1px);
+  border: 1px solid rgba(255, 196, 92, 0.18);
+  background: rgba(255, 196, 92, 0.05);
+}
+
+.tool-track-notes p {
+  margin: 0;
+  color: rgba(230, 214, 180, 0.88);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.tool-track-source {
+  margin: 0;
+  color: rgba(170, 198, 214, 0.78);
+  font-size: 0.74rem;
+  line-height: 1.35;
+  letter-spacing: 0.01em;
 }
 
 .tool-spectrum-expand.is-on {
@@ -7796,12 +7933,10 @@ body:has(.gallery-page) .site-header {
 
 .tour-rail-dock {
   position: absolute;
-  left: 50%;
-  bottom: max(1rem, env(safe-area-inset-bottom));
   z-index: 2;
   display: grid;
   gap: 0.7rem;
-  width: min(560px, calc(100vw - 1.25rem));
+  max-width: calc(100vw - 1.25rem);
   padding: 0.85rem 1rem 0.9rem;
   border: 1px solid rgba(120, 190, 210, 0.28);
   border-radius: 4px 18px 14px 14px;
@@ -7810,19 +7945,36 @@ body:has(.gallery-page) .site-header {
   box-shadow:
     0 -1px 0 rgba(255, 255, 255, 0.04) inset,
     0 18px 48px rgba(0, 0, 0, 0.45);
-  transform: translateX(-50%) translateY(8px);
   opacity: 0;
   pointer-events: auto;
+  transition: left 0.35s var(--ease), top 0.35s var(--ease), bottom 0.35s var(--ease);
   animation: tour-rail-in 0.45s var(--ease) forwards;
+}
+
+.tour-rail-dock:not(.is-anchored) {
+  transform: translateX(-50%) translateY(8px);
+  animation-name: tour-rail-in-center;
+}
+
+.tour-rail-dock.is-anchored {
+  transform: translateY(8px);
+  animation-name: tour-rail-in-anchored;
 }
 
 .tour-rail-dock.is-ok {
   border-color: rgba(61, 222, 159, 0.4);
 }
 
-@keyframes tour-rail-in {
+@keyframes tour-rail-in-center {
   to {
     transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes tour-rail-in-anchored {
+  to {
+    transform: translateY(0);
     opacity: 1;
   }
 }
@@ -8000,9 +8152,16 @@ body:has(.gallery-page) .site-header {
 
 @media (max-width: 640px) {
   .tour-rail-dock {
-    bottom: max(0.65rem, env(safe-area-inset-bottom));
-    width: calc(100vw - 0.9rem);
+    left: 50% !important;
+    top: auto !important;
+    bottom: max(0.65rem, env(safe-area-inset-bottom)) !important;
+    width: calc(100vw - 0.9rem) !important;
     padding: 0.75rem 0.8rem;
+    transform: translateX(-50%);
+  }
+
+  .tour-rail-dock.is-anchored {
+    transform: translateX(-50%);
   }
 
   .tour-rail-actions {
@@ -8027,8 +8186,13 @@ body:has(.gallery-page) .site-header {
     animation: none;
   }
 
-  .tour-rail-dock {
+  .tour-rail-dock:not(.is-anchored) {
     opacity: 1;
     transform: translateX(-50%);
+  }
+
+  .tour-rail-dock.is-anchored {
+    opacity: 1;
+    transform: none;
   }
 }

@@ -61,7 +61,8 @@ const KEEP_CELLS = 120;
 const FADE_MS = 300;
 /** Right-click menu footprint (`.sky-map-menu`), used to keep it inside the stage. */
 const MENU_W = 214;
-const MENU_H = 190;
+/** Four menu rows (Information / Analyze / Flag / Share) + padding. */
+const MENU_H = 156;
 const TILE_VERSION = "9";
 /** Blink speed: each visit stays on screen this long. */
 const BLINK_MS = 650;
@@ -462,6 +463,10 @@ export type SkyMapTourState = {
   timeMode: TimeMode;
   showKnown: boolean;
   targetName: string | null;
+  /** Typed / URL search string (e.g. "M101") — may differ from SIMBAD's display name. */
+  targetQuery: string | null;
+  ra: number;
+  dec: number;
   fov: number;
   ready: boolean;
   loading: boolean;
@@ -473,6 +478,7 @@ export type SkyMapTourApi = {
   setTimeMode: (mode: TimeMode) => void;
   setShowKnown: (on: boolean) => void;
   zoomIn: () => void;
+  nudgeView: () => void;
   getState: () => SkyMapTourState;
   ready: boolean;
   loading: boolean;
@@ -552,9 +558,7 @@ export default function SkyMap({
     if (!menu) return;
     const point = { ra: menu.ra, dec: menu.dec };
     setMenu(null);
-    if (action === "center") {
-      setView((v) => (v ? { ...v, ra: point.ra, dec: clamp(point.dec, -85, 85) } : v));
-    } else if (action === "share") {
+    if (action === "share") {
       const link = mapLink({ ...point, fov: view?.fov ?? FOV_START }, timeMode);
       navigator.clipboard
         .writeText(link)
@@ -565,7 +569,7 @@ export default function SkyMap({
     } else {
       setSourceMarks([]);
       setFindsOpen(false);
-      setInspect({ ...point, tab: action });
+      setInspect({ ...point, tab: "object" });
     }
   }
 
@@ -725,10 +729,20 @@ export default function SkyMap({
       setTimeMode,
       setShowKnown,
       zoomIn: () => zoomAt(1 / 1.5, 0, 0),
+      nudgeView: () => {
+        setView((v) =>
+          v
+            ? { ...v, ra: wrapRa(v.ra + 18), dec: clamp(v.dec + 4, -85, 85) }
+            : v,
+        );
+      },
       getState: () => ({
         timeMode,
         showKnown,
         targetName: target?.name ?? null,
+        targetQuery: markParam?.value ?? (query.trim() || null),
+        ra: view?.ra ?? 0,
+        dec: view?.dec ?? 0,
         fov: view?.fov ?? FOV_START,
         ready: mapReady,
         loading: searching,
@@ -736,7 +750,7 @@ export default function SkyMap({
       ready: mapReady,
       loading: searching,
     });
-  }, [onTourApi, mapReady, searching, timeMode, showKnown, target, view?.fov]);
+  }, [onTourApi, mapReady, searching, timeMode, showKnown, target, markParam, query, view]);
 
 
   useEffect(() => {
@@ -1432,8 +1446,8 @@ export default function SkyMap({
             data-tour="analyze"
             href={
               view
-                ? `/data-analysis?ra=${view.ra.toFixed(5)}&dec=${view.dec.toFixed(5)}&mode=expert`
-                : "/data-analysis?mode=expert"
+                ? `/data-analysis?ra=${view.ra.toFixed(5)}&dec=${view.dec.toFixed(5)}`
+                : "/data-analysis"
             }
             onClick={() => {
               window.dispatchEvent(new CustomEvent("fp-tour-analyze"));

@@ -274,6 +274,7 @@ export default function SkyGlobe({
   return (
     <figure
       className="sky-map-globe"
+      data-tour="globe"
       onPointerDown={onPointerDown}
       onContextMenu={(event) => {
         event.preventDefault();

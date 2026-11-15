@@ -6,20 +6,18 @@ export type TourSpotlight =
   | "time-compare"
   | "known"
   | "zoom"
+  | "globe"
   | "analyze"
   | "finds";
 
 export type TourStepId =
   | "welcome"
-  | "barnard-see"
   | "barnard-blink"
   | "barnard-compare"
-  | "barnard-known"
-  | "zoom-in"
-  | "m101-search"
-  | "m1-nebula"
-  | "open-lab"
-  | "done";
+  | "search"
+  | "globe"
+  | "context-menu"
+  | "open-lab";
 
 export type TourRequire =
   | { type: "ack" }
@@ -27,6 +25,7 @@ export type TourRequire =
   | { type: "showKnown"; value: boolean }
   | { type: "target"; match: string }
   | { type: "zoomIn" }
+  | { type: "viewMoved" }
   | { type: "clickAnalyze" };
 
 export type TourStep = {
@@ -38,6 +37,11 @@ export type TourStep = {
   task: string;
   tip?: string;
   spotlight: TourSpotlight | TourSpotlight[];
+  /**
+   * Where to park the coach card. Defaults to the first spotlight; use `"bottom"` for
+   * map-wide steps so the card stays out of the way.
+   */
+  dock?: "auto" | "bottom";
   load?: { kind: "preset"; key: string } | { kind: "name"; name: string };
   cue?: {
     timeMode?: "any" | "first" | "last" | "blink" | "compare";
@@ -56,35 +60,23 @@ export const TOUR_STEPS: TourStep[] = [
     id: "welcome",
     kicker: "Briefing",
     title: "You are on the SPHEREx sky map.",
-    body: "Drag to pan. Scroll to zoom. We will walk a few real controls — you drive them.",
+    body: "Drag the sky to pan. Scroll to zoom. A short tour of the real controls — you drive them.",
     task: "Tap Continue when you are ready.",
     spotlight: "map",
+    dock: "bottom",
     require: { type: "ack" },
     allowSkip: false,
     nextLabel: "Continue",
   },
   {
-    id: "barnard-see",
-    kicker: "01 · Proper motion",
-    title: "Stars move.",
-    body: "Barnard's Star is one of the fastest wanderers. SPHEREx revisits months apart, so that walk can show up as a jump between visits.",
-    task: "Look at the field, then continue.",
-    tip: "The search box can jump to any name or RA Dec later.",
-    spotlight: ["map", "search"],
-    load: { kind: "preset", key: "barnard" },
-    cue: { timeMode: "any", showKnown: false },
-    require: { type: "ack" },
-    allowSkip: false,
-    nextLabel: "Got it",
-  },
-  {
     id: "barnard-blink",
-    kicker: "02 · Blink",
+    kicker: "01 · Blink",
     title: "Play the visits.",
-    body: "Blink swaps the first and last survey visit. Fixed sky holds; movers jump.",
+    body: "Barnard's Star walks between SPHEREx revisits. Blink swaps the first and last visit — fixed sky holds; movers jump.",
     task: "Tap Blink in the time bar.",
     tip: "Watch the field after it lights up.",
-    spotlight: ["time-blink", "time", "map"],
+    spotlight: ["time-blink", "time"],
+    load: { kind: "preset", key: "barnard" },
     cue: { showKnown: false },
     require: { type: "timeMode", value: "blink" },
     allowSkip: false,
@@ -93,90 +85,65 @@ export const TOUR_STEPS: TourStep[] = [
   },
   {
     id: "barnard-compare",
-    kicker: "03 · Compare",
+    kicker: "02 · Compare",
     title: "Red beside cyan.",
-    body: "Compare overlays both visits: white means still; red beside cyan means it moved.",
+    body: "Compare overlays both visits: white means still; red beside cyan means it moved. Known movers (amber rings, asteroid diamonds) explain catalogued jumps.",
     task: "Tap Red / cyan in the time bar.",
-    spotlight: ["time-compare", "time", "map"],
+    tip: "Afterward, try Known movers in the left HUD to veto false discoveries.",
+    spotlight: ["time-compare", "time", "known"],
     require: { type: "timeMode", value: "compare" },
     allowSkip: false,
     nextLabel: "Next",
     assistLabel: "Do it for me",
   },
   {
-    id: "barnard-known",
-    kicker: "04 · Catalogues",
-    title: "Known movers.",
-    body: "Amber rings are fast Gaia stars; diamonds are asteroids at the visit times. A blink is only a discovery if neither explains it.",
-    task: "Turn Known movers on (tap the control).",
-    tip: "Zoom in if the legend says the view is too wide.",
-    spotlight: ["known", "map"],
-    cue: { timeMode: "compare" },
-    require: { type: "showKnown", value: true },
-    allowSkip: false,
-    nextLabel: "Next",
-    assistLabel: "Do it for me",
-  },
-  {
-    id: "zoom-in",
-    kicker: "05 · Zoom",
-    title: "Get closer.",
-    body: "Tighter FOV makes known-mover marks and tile detail readable.",
-    task: "Zoom in with + or the scroll wheel.",
-    spotlight: ["zoom", "map"],
-    require: { type: "zoomIn" },
-    allowSkip: true,
-    nextLabel: "Next",
-    assistLabel: "Zoom for me",
-  },
-  {
-    id: "m101-search",
-    kicker: "06 · Galaxy",
-    title: "Not everything walks.",
-    body: "M101 is a spiral galaxy — so far the whole island holds still across visits. Search takes you there.",
-    task: "Search for M101 (type it and press Go).",
-    tip: "Or use Assist to jump once you have seen the search box.",
-    spotlight: ["search", "map"],
+    id: "search",
+    kicker: "03 · Search",
+    title: "Jump anywhere.",
+    body: "Type a name or RA Dec and press Go. Try M101 — a spiral galaxy that holds still across visits.",
+    task: "Search for M101.",
+    spotlight: "search",
     require: { type: "target", match: "m101" },
     allowSkip: true,
     nextLabel: "Next",
     assistLabel: "Search M101",
   },
   {
-    id: "m1-nebula",
-    kicker: "07 · Nebula",
-    title: "M1 — the Crab.",
-    body: "A supernova remnant. It does not stroll like Barnard's Star; its story is chemistry across infrared bands.",
-    task: "Search for M1.",
-    spotlight: ["search", "map"],
-    require: { type: "target", match: "m1|crab" },
+    id: "globe",
+    kicker: "04 · Globe",
+    title: "Turn the whole sky.",
+    body: "The mini globe shows where you are looking. Drag it to spin the sky, or click a spot to fly there.",
+    task: "Drag or click the globe to move the view.",
+    tip: "Lower-left corner of the map.",
+    spotlight: "globe",
+    require: { type: "viewMoved" },
     allowSkip: true,
     nextLabel: "Next",
-    assistLabel: "Search M1",
+    assistLabel: "Nudge the sky",
+  },
+  {
+    id: "context-menu",
+    kicker: "05 · Right-click",
+    title: "Four actions on any spot.",
+    body: "Right-click the sky for Information (what's here), Analyze (open the lab on that point), Flag as mover (save a candidate), and Share (copy a link).",
+    task: "Read the options, then continue.",
+    tip: "You can try a right-click now — the tour stays open.",
+    spotlight: "map",
+    dock: "bottom",
+    require: { type: "ack" },
+    allowSkip: true,
+    nextLabel: "Got it",
   },
   {
     id: "open-lab",
-    kicker: "08 · Lab",
+    kicker: "06 · Lab",
     title: "Bands and spectra.",
-    body: "Data analysis is the instrument bay: retune detectors, flicker frames, click for a spectrum.",
-    task: "Open Data analysis (or Continue to jump with M1).",
-    spotlight: ["analyze"],
+    body: "Data analysis is the instrument bay: retune detectors, flicker frames, click for a spectrum. Finish by opening it on M1 — the Crab Nebula.",
+    task: "Open the lab to finish the tour.",
+    spotlight: "analyze",
     require: { type: "clickAnalyze" },
     allowSkip: true,
     nextLabel: "Open lab with M1",
-    assistLabel: "Open lab with M1",
-  },
-  {
-    id: "done",
-    kicker: "Ready",
-    title: "Your sky.",
-    body: "Pan, blink, flag finds, and open the lab whenever a spot deserves wavelengths.",
-    task: "Finish the briefing.",
-    tip: "Restart anytime from Guided tour in the HUD.",
-    spotlight: "map",
-    require: { type: "ack" },
-    allowSkip: true,
-    nextLabel: "Start exploring",
   },
 ];
 
