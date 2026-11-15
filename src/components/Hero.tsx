@@ -9,7 +9,7 @@ const chapters = [
   {
     align: "",
     kicker: "NASA Space Apps 2026",
-    title: "Flicker the sky.",
+    title: "See the sky flicker.",
     body: "Scroll past SPHEREx. It is already mapping the whole sky in infrared.",
     heading: "h1" as const,
   },
@@ -305,7 +305,7 @@ export default function Hero() {
               <Heading id={index === 0 ? "hero-title" : undefined}>
                 {index === 0 ? (
                   <>
-                    <span className="flicker">Flicker</span> the sky.
+                    See the sky <span className="flicker">flicker</span>.
                   </>
                 ) : (
                   chapter.title

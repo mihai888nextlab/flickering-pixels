@@ -8,7 +8,6 @@ const stats = [
   { value: "102", label: "IR bands per visit" },
   { value: "6 mo", label: "between all-sky maps" },
   { value: "1B+", label: "objects in the survey" },
-  { value: "5", label: "proof targets" },
 ];
 
 export default function Challenge() {
