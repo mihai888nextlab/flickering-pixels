@@ -714,7 +714,7 @@ export default function SpherexBlinkDemo() {
     <div className="spherex-demo">
       <nav className="sx-nav">
         <Link href="/">Home</Link>
-        <Link href="/tool">The tool</Link>
+        <Link href="/tool?enter=1">The tool</Link>
       </nav>
 
       <header>
