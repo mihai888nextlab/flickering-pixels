@@ -5,6 +5,7 @@ import hashlib
 import io
 import math
 import re
+import secrets
 import time
 import warnings
 from xml.etree import ElementTree as ET
@@ -358,9 +359,11 @@ async def get_cutout(url, ra, dec, size):
         with fits.open(io.BytesIO(r.content)) as h:
             keep = fits.HDUList([fits.PrimaryHDU(header=h[0].header)] +
                                 [h[e].copy() for e in KEEP_EXT if e in h])
-            tmp = path.with_suffix(".part")
+            # Own temp name per write + replace(): two loads fetching the same cutout can't
+            # clash, and replace() overwrites on Windows too (rename() raises if it exists).
+            tmp = path.with_suffix(f".{secrets.token_hex(4)}.part")
             keep.writeto(tmp, overwrite=True)
-            tmp.rename(path)
+            tmp.replace(path)
     # Read the whole file into memory: astropy opens FITS lazily, and an HDUList returned
     # straight from fits.open(path) keeps its file descriptor open for as long as it lives
     # (jobs keep their cutouts) — that leaked descriptors until "Too many open files".

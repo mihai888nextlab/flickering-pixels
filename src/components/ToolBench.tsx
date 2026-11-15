@@ -104,7 +104,7 @@ const AMATEUR_DETECTORS = [5, 6];
 const AMATEUR_MAX_FRAMES = 20;
 const EXPERT_DEFAULT_MAX_FRAMES = 48;
 /** Glow used when the RGB composite is selected as the “wavelength”. */
-const RGB_VIEW_COLOR = "#8fd6ff";
+const RGB_VIEW_COLOR = "#a6c8d8";
 
 /** Near-infrared continuum 0.75–5 μm. Theme cites 102 bands; slider uses a dense 120-step scale. */
 const BAND_COUNT = 120;
@@ -112,12 +112,12 @@ const WAVE_MIN = 0.75;
 const WAVE_MAX = 5;
 
 const SPECTRUM_STOPS = [
-  { t: 0, color: [226, 207, 234] },
-  { t: 0.18, color: [160, 108, 213] },
-  { t: 0.4, color: [98, 71, 170] },
-  { t: 0.62, color: [28, 77, 104] },
-  { t: 0.82, color: [16, 43, 63] },
-  { t: 1, color: [26, 107, 98] },
+  { t: 0, color: [197, 198, 211] },
+  { t: 0.18, color: [147, 131, 173] },
+  { t: 0.4, color: [105, 112, 148] },
+  { t: 0.62, color: [42, 75, 99] },
+  { t: 0.82, color: [29, 49, 68] },
+  { t: 1, color: [121, 164, 164] },
 ];
 
 function lerp(a: number, b: number, t: number) {

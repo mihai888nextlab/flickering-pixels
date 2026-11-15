@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "spherex:api": "cd spherex-blink-demo && .venv/bin/uvicorn app:app --host 127.0.0.1 --port 8000 --reload",
-    "spherex:api:setup": "cd spherex-blink-demo && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+    "setup": "node scripts/backend.mjs setup",
+    "dev:all": "node scripts/dev.mjs",
+    "spherex:api": "node scripts/backend.mjs dev",
+    "spherex:api:setup": "node scripts/backend.mjs setup"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.9",

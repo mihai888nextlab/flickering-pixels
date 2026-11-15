@@ -26,7 +26,7 @@ function smooth(value: number) {
   return t * t * (3 - 2 * t);
 }
 
-const STAR_COLORS = ["#f4fafc", "#7ee7ff", "#5ce1ff", "#3aa7c4", "#e2cfea"].map((hex) => new Color(hex));
+const STAR_COLORS = ["#e7edeb", "#c4f1e4", "#9be4ce", "#75bea8", "#d7c6e8"].map((hex) => new Color(hex));
 
 function scatter(count: number, near: number, far: number) {
   const positions = new Float32Array(count * 3);
@@ -135,7 +135,7 @@ const AURORA: readonly GlowLayer[] = [
       [0, "rgba(92, 196, 176, 0.55)"],
       [0.32, "rgba(24, 120, 112, 0.34)"],
       [0.66, "rgba(16, 62, 88, 0.16)"],
-      [1, "rgba(16, 43, 63, 0)"],
+      [1, "rgba(20, 36, 44, 0)"],
     ],
   },
   {
@@ -144,8 +144,8 @@ const AURORA: readonly GlowLayer[] = [
     radius: 170,
     stops: [
       [0, "rgba(186, 160, 224, 0.42)"],
-      [0.4, "rgba(98, 71, 170, 0.2)"],
-      [1, "rgba(98, 71, 170, 0)"],
+      [0.4, "rgba(118, 93, 145, 0.2)"],
+      [1, "rgba(118, 93, 145, 0)"],
     ],
   },
 ];
@@ -156,10 +156,10 @@ const BLOOM: readonly GlowLayer[] = [
     y: 230,
     radius: 220,
     stops: [
-      [0, "rgba(226, 207, 234, 0.62)"],
-      [0.28, "rgba(160, 108, 213, 0.4)"],
-      [0.62, "rgba(98, 71, 170, 0.18)"],
-      [1, "rgba(16, 43, 63, 0)"],
+      [0, "rgba(157, 181, 188, 0.62)"],
+      [0.28, "rgba(173, 140, 196, 0.4)"],
+      [0.62, "rgba(118, 93, 145, 0.18)"],
+      [1, "rgba(20, 36, 44, 0)"],
     ],
   },
   {
@@ -168,8 +168,8 @@ const BLOOM: readonly GlowLayer[] = [
     radius: 150,
     stops: [
       [0, "rgba(72, 132, 186, 0.4)"],
-      [0.55, "rgba(16, 43, 63, 0.14)"],
-      [1, "rgba(3, 0, 4, 0)"],
+      [0.55, "rgba(20, 36, 44, 0.14)"],
+      [1, "rgba(7, 12, 16, 0)"],
     ],
   },
 ];
@@ -181,9 +181,9 @@ const DUST: readonly GlowLayer[] = [
     radius: 230,
     stops: [
       [0, "rgba(64, 128, 176, 0.5)"],
-      [0.36, "rgba(98, 71, 170, 0.26)"],
-      [0.7, "rgba(16, 43, 63, 0.1)"],
-      [1, "rgba(3, 0, 4, 0)"],
+      [0.36, "rgba(118, 93, 145, 0.26)"],
+      [0.7, "rgba(20, 36, 44, 0.1)"],
+      [1, "rgba(7, 12, 16, 0)"],
     ],
   },
   {
@@ -193,7 +193,7 @@ const DUST: readonly GlowLayer[] = [
     stops: [
       [0, "rgba(46, 150, 136, 0.36)"],
       [0.6, "rgba(6, 39, 38, 0.1)"],
-      [1, "rgba(3, 0, 4, 0)"],
+      [1, "rgba(7, 12, 16, 0)"],
     ],
   },
 ];
@@ -304,7 +304,7 @@ function Sky({ progress }: { progress: RefObject<number> }) {
 
 function SpectralLight({ progress }: { progress: RefObject<number> }) {
   const light = useRef<PointLight>(null);
-  const color = useMemo(() => new Color("#5ce1ff"), []);
+  const color = useMemo(() => new Color("#9be4ce"), []);
 
   useFrame(({ clock }) => {
     if (!light.current) return;
@@ -358,7 +358,7 @@ function Earth({ progress }: { progress: RefObject<number> }) {
         <sphereGeometry args={[1, 48, 48]} />
         <meshBasicMaterial color="#7eb8e8" transparent opacity={0.16} depthWrite={false} side={DoubleSide} />
       </mesh>
-      <directionalLight position={[2.8, 2.2, 1.6]} intensity={2.8} color="#f4fafc" />
+      <directionalLight position={[2.8, 2.2, 1.6]} intensity={2.8} color="#e7edeb" />
     </group>
   );
 }
@@ -474,11 +474,11 @@ function Telescope({ progress, drag }: { progress: RefObject<number>; drag: RefO
 function Scene({ progress, drag }: { progress: RefObject<number>; drag: RefObject<Drag> }) {
   return (
     <>
-      <color attach="background" args={["#030004"]} />
+      <color attach="background" args={["#070c10"]} />
       <ambientLight intensity={0.38} />
-      <directionalLight position={[3.2, 4.4, 2.2]} intensity={2.6} color="#f4fafc" />
-      <directionalLight position={[-3.4, 1.1, -1.4]} intensity={1.8} color="#5ce1ff" />
-      <directionalLight position={[0.2, -1.4, 2.6]} intensity={0.7} color="#7ee7ff" />
+      <directionalLight position={[3.2, 4.4, 2.2]} intensity={2.6} color="#e7edeb" />
+      <directionalLight position={[-3.4, 1.1, -1.4]} intensity={1.8} color="#9be4ce" />
+      <directionalLight position={[0.2, -1.4, 2.6]} intensity={0.7} color="#c4f1e4" />
       <SpectralLight progress={progress} />
       <Sky progress={progress} />
       <Suspense fallback={null}>

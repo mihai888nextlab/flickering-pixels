@@ -4,7 +4,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef } from "react";
 import { CanvasTexture, Color, NearestFilter, type Group } from "three";
 
-const STAR_COLORS = ["#f4fafc", "#e2cfea", "#c9b6e4", "#a06cd5", "#5ce1ff", "#7ee7ff"].map(
+const STAR_COLORS = ["#e1e9ef", "#c9c4d2", "#a39bb9", "#8e9eb3", "#a5cbd4", "#c9dfe3"].map(
   (hex) => new Color(hex),
 );
 
