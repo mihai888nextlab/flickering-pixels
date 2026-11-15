@@ -6,7 +6,7 @@ import math
 import time
 import traceback
 import uuid
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -30,6 +30,8 @@ import processing as P
 app = FastAPI(title="SPHEREx Blink demo")
 STATIC = Path(__file__).parent / "static"
 JOBS = {}
+# Finished jobs hold cutouts, stacks and PNGs in memory; keep only the most recent ones.
+MAX_JOBS = 24
 
 
 class LoadRequest(BaseModel):
@@ -127,6 +129,7 @@ async def load(req: LoadRequest):
         and existing["status"] in ("searching", "downloading", "processing", "done")
     )
     if not reuse:
+        _evict_old_jobs(keep=key)
         run_id = uuid.uuid4().hex
         JOBS[key] = {
             "status": "searching",
@@ -147,6 +150,10 @@ def job_status(key: str):
     j = _job(key)
     return {k: v for k, v in j.items()
             if k in ("status", "done", "total", "attempt", "message", "error", "result")}
+
+
+# A band with fewer usable downloads than this gets a second try with its other frames.
+BACKFILL_MIN_PER_BAND = 2
 
 
 async def run_job(key, target, fov, colls, dets, max_frames, run_id):
@@ -170,7 +177,8 @@ async def run_job(key, target, fov, colls, dets, max_frames, run_id):
                     message=message or f"Waiting on IRSA archive… attempt {attempt}",
                 )
 
-        rows = await irsa.search(ra0, dec0, colls, on_attempt=on_attempt)
+        search_report: dict = {}
+        rows = await irsa.search(ra0, dec0, colls, on_attempt=on_attempt, report=search_report)
         if not active():
             return
         if not rows:
@@ -225,6 +233,35 @@ async def run_job(key, target, fov, colls, dets, max_frames, run_id):
                 cutouts.append((f, h))
         if not active():
             return
+
+        # Backfill: when every sampled frame of a band failed (IRSA timeouts), try that band's
+        # other frames, so one slow batch doesn't hide a whole wavelength band.
+        tried = {f["url"] for f in frames}
+        have = Counter(f["detector"] for f, _ in cutouts)
+        extra = []
+        for d in sorted({r["detector"] for r in rows}):
+            need = BACKFILL_MIN_PER_BAND - have[d]
+            spare = [r for r in rows if r["detector"] == d and r["url"] not in tried]
+            if need <= 0 or not spare:
+                continue
+            n = min(len(spare), need * 2)
+            step = len(spare) / n
+            extra += [spare[int(i * step)] for i in range(n)]
+        if extra:
+            short = sorted({f["detector"] for f in extra})
+            job["total"] += len(extra)
+            job["message"] = f"Retrying {', '.join(f'D{d}' for d in short)} with other frames…"
+            for f, h in await asyncio.gather(*(fetch(f) for f in extra)):
+                if h is not None:
+                    cutouts.append((f, h))
+            if not active():
+                return
+        job["band_rows"] = {
+            "wanted": dets or list(range(1, 7)),
+            "found": Counter(r["detector"] for r in rows),
+            "downloaded": Counter(f["detector"] for f, _ in cutouts),
+        }
+
         if not cutouts:
             job.update(status="error",
                        error="IRSA returned image IDs but every cutout download failed or timed out. "
@@ -252,6 +289,8 @@ async def run_job(key, target, fov, colls, dets, max_frames, run_id):
             description = irsa.catalog_blurb(target)
         if description:
             result.setdefault("target", {})["description"] = description
+        # Releases IRSA never answered for: their (older) survey passes are missing.
+        result["missing_releases"] = search_report.get("missing") or []
         job.update(status="done", result=result, cutouts=cutouts, ra0=ra0, dec0=dec0, fov=fov)
     except irsa.IrsaUnavailable as e:
         traceback.print_exc()
@@ -272,6 +311,16 @@ def build(job, target, ra0, dec0, fov, cutouts, n_found):
     pngs = job["pngs"]
     reproj = [(m, h, P.reproject_frame(h, w, shape)) for m, h in cutouts]
     reproj = [r for r in reproj if np.isfinite(r[2]).mean() > 0.3]
+    # Why a band is (or isn't) on the stage: frames in the archive → downloaded → usable here.
+    rows_info = job.get("band_rows") or {}
+    used = Counter(m["detector"] for m, _, _ in reproj)
+    band_coverage = [
+        dict(detector=d,
+             found=int(rows_info.get("found", {}).get(d, 0)),
+             downloaded=int(rows_info.get("downloaded", {}).get(d, 0)),
+             used=int(used[d]))
+        for d in rows_info.get("wanted", range(1, 7))
+    ]
     # Cutouts arrive in download-completion order; frames and survey passes need time order.
     reproj.sort(key=lambda r: r[0]["mjd"])
 
@@ -335,10 +384,25 @@ def build(job, target, ra0, dec0, fov, cutouts, n_found):
         frames=frames_out,
         epochs=epochs_out,
         detectors=det_out,
+        band_coverage=band_coverage,
         rgb="rgb" if "rgb" in pngs else None,
         pixel_scale=config.PIXEL_SCALE_ARCSEC,
         contam_bits=list(config.CONTAM_FLAG_BITS.keys()),
     )
+
+
+def _evict_old_jobs(keep=None):
+    """Drop the oldest jobs beyond MAX_JOBS (dicts keep insertion order)."""
+    while len(JOBS) >= MAX_JOBS:
+        oldest = next((k for k in JOBS if k != keep), None)
+        if oldest is None:
+            break
+        old = JOBS.pop(oldest)
+        for _, hdul in old.get("cutouts") or []:
+            try:
+                hdul.close()
+            except Exception:
+                pass
 
 
 def _job(key):
@@ -409,11 +473,7 @@ def predict(key: str, req: PredictRequest):
     x, y: pixel in the displayed grid (origin top-left), like /spectrum.
     """
     j = _job(key)
-    if j["status"] != "done":
-        raise HTTPException(409, "Job not finished")
-    stacks, mjds, w = j.get("epoch_stacks"), j.get("epoch_mjd"), j["wcs"]
-    if not stacks or not mjds:
-        raise HTTPException(409, "Reload this target: the job predates motion tracking")
+    stacks, mjds = _motion_inputs(j)
     by_epoch = {}
     for m in req.marks:
         if not 0 <= m.epoch < len(stacks):
@@ -421,18 +481,42 @@ def predict(key: str, req: PredictRequest):
         by_epoch[m.epoch] = m  # last click on a visit wins
     if len(by_epoch) < 3:
         raise HTTPException(400, "Mark the object in at least 3 different visits")
-    horizon = float(np.clip(req.horizon_days, 1, 3650))
+    n = j["result"]["npix"]
+    points = []
+    for ep in sorted(by_epoch, key=lambda e: mjds[e]):
+        m = by_epoch[ep]
+        col, row, snr, refined = P.centroid(P.fill_saturated(stacks[ep]), m.x, n - 1 - m.y)
+        points.append(dict(epoch=ep, col=col, row=row, snr=snr, refined=refined))
+    return _motion_fit(j, points, req.horizon_days)
+
+
+def _motion_inputs(j):
+    if j["status"] != "done":
+        raise HTTPException(409, "Job not finished")
+    stacks, mjds = j.get("epoch_stacks"), j.get("epoch_mjd")
+    if not stacks or not mjds:
+        raise HTTPException(409, "Reload this target: the job predates motion tracking")
+    return stacks, mjds
+
+
+def _motion_fit(j, points, horizon_days):
+    """Fit straight-line sky motion through per-pass positions (array pixels) and extrapolate.
+
+    points: [{epoch, col, row, snr, refined}], one per survey pass. Shared by hand marks
+    (/predict) and the automatic mover search (/movers).
+    """
+    mjds, w = j["epoch_mjd"], j["wcs"]
+    horizon = float(np.clip(horizon_days, 1, 3650))
     n = j["result"]["npix"]
     scale = config.PIXEL_SCALE_ARCSEC
 
     marks = []
-    for ep in sorted(by_epoch, key=lambda e: mjds[e]):
-        m = by_epoch[ep]
-        col, row, snr, refined = P.centroid(stacks[ep], m.x, n - 1 - m.y)
+    for pt in sorted(points, key=lambda q: mjds[q["epoch"]]):
+        ep, col, row = pt["epoch"], pt["col"], pt["row"]
         ra, dec = w.pixel_to_world_values(col, row)
         marks.append(dict(epoch=ep, mjd=mjds[ep], date=P.mjd_to_iso(mjds[ep]),
-                          x=col, y=n - 1 - row, ra=float(ra), dec=float(dec),
-                          snr=round(snr, 1), refined=refined))
+                          x=float(col), y=float(n - 1 - row), ra=float(ra), dec=float(dec),
+                          snr=round(float(pt["snr"]), 1), refined=bool(pt["refined"])))
 
     # Tangent plane around the first mark, arcsec (xi east, eta north).
     ref = SkyCoord(marks[0]["ra"] * u.deg, marks[0]["dec"] * u.deg)
@@ -442,9 +526,15 @@ def predict(key: str, req: PredictRequest):
     xi = off.lon.to_value(u.arcsec)
     eta = off.lat.to_value(u.arcsec)
     t = np.array([P.mjd_to_year(m["mjd"]) for m in marks])
-    # Click/centroid precision: ~0.3 px for a clean centroid, ~1 px for a bare click.
-    sigma = np.array([(0.3 if m["refined"] else 1.0) * scale for m in marks])
-    pred_mjd = marks[-1]["mjd"] + horizon
+    # Position precision: measured for automatic detections; for clicks ~0.3 px with a clean
+    # centroid, ~1 px for a bare click.
+    by_ep = {pt["epoch"]: pt for pt in points}
+    sigma = np.array([
+        (by_ep[m["epoch"]].get("sigma_px") or (0.3 if m["refined"] else 1.0)) * scale for m in marks
+    ])
+    # "In 6 months" means from today (or from the last pass, if that were ever later).
+    today_mjd = time.time() / 86400.0 + 40587.0
+    pred_mjd = max(marks[-1]["mjd"], today_mjd) + horizon
     t_pred = P.mjd_to_year(pred_mjd)
     fit = P.fit_motion(t, xi, eta, sigma, t_pred)
 
@@ -499,6 +589,189 @@ def predict(key: str, req: PredictRequest):
         catalog=catalog,
         notes=notes,
     )
+
+
+@app.get("/api/job/{key}/movers")
+async def movers(key: str, horizon_days: float = Query(182.6, ge=1, le=3650)):
+    """Moving objects in the field, from catalogs (no clicks needed).
+
+    Stars: Gaia DR3 proper motions (plus the loaded target's own catalog motion, which
+    covers faint brown dwarfs Gaia can't see). Asteroids: IMCCE SkyBoT for each survey
+    pass, with JPL Horizons for the position 6 months ahead. Each star is then checked
+    against the SPHEREx images: is there a source at its catalog position in each pass?
+    """
+    j = _job(key)
+    stacks, mjds = _motion_inputs(j)
+    cached = j.get("movers_cache")
+    if cached and cached[0] == horizon_days:
+        return cached[1]
+    w, res = j["wcs"], j["result"]
+    n, fov = res["npix"], res["fov"]
+    scale = config.PIXEL_SCALE_ARCSEC
+    center = (res["target"]["ra"], res["target"]["dec"])
+    radius = fov * 0.75  # covers the corners of the square field
+    years = [P.mjd_to_year(m) for m in mjds]
+    today_mjd = time.time() / 86400.0 + 40587.0
+    pred_mjd = max(mjds[-1], today_mjd) + float(horizon_days)
+    pred_year = P.mjd_to_year(pred_mjd)
+    filled = [P.fill_saturated(s) for s in stacks]
+    target = j.get("target_full") or {}
+    notes: list[str] = []
+
+    def to_px(ra, dec):
+        col, row = w.world_to_pixel_values(ra, dec)
+        col, row = float(col), float(row)
+        return col, row, -0.5 <= col <= n - 0.5 and -0.5 <= row <= n - 0.5
+
+    def pa_of(east, north):
+        return (math.degrees(math.atan2(east, north)) + 360) % 360
+
+    def star_candidate(obj, name, source, gmag=None):
+        marks, offsets = [], []
+        for e, (mjd, yr) in enumerate(zip(mjds, years)):
+            ra, dec = irsa.propagate(obj, yr)
+            col, row, inside = to_px(ra, dec)
+            if not inside:
+                continue
+            # SPHEREx check: a source within a pixel of where the catalog puts the star.
+            c2, r2, snr, ok = P.centroid(filled[e], col, row)
+            seen = ok and math.hypot(c2 - col, r2 - row) <= 1.0
+            if seen:
+                offsets.append(math.hypot(c2 - col, r2 - row) * scale)
+            marks.append(dict(epoch=e, mjd=mjd, date=P.mjd_to_iso(mjd), x=col, y=n - 1 - row,
+                              ra=float(ra), dec=float(dec), snr=round(float(snr), 1), refined=bool(seen)))
+        if not marks:
+            return None
+        pra, pdec = irsa.propagate(obj, pred_year)
+        pcol, prow, pin = to_px(pra, pdec)
+        speed = math.hypot(obj["pm_ra"], obj["pm_dec"]) / 1000  # arcsec/yr
+        e_pm = float(obj.get("e_pm") or 0) / 1000
+        sigma = max(0.01, e_pm * abs(pred_year - obj.get("ref_epoch", 2016.0)))
+        shift_px = speed * (years[-1] - years[0]) / scale
+        seen_n = sum(m["refined"] for m in marks)
+        c_notes = [f"{source}: moves {speed:.2f}″/yr"
+                   + (f", G = {gmag:.1f} mag" if gmag is not None else "") + "."]
+        if seen_n:
+            c_notes.append(f"SPHEREx sees a source at the catalog position in {seen_n} of {len(marks)} passes.")
+        else:
+            c_notes.append("Too faint (or blended) for SPHEREx to pick out here; the path is from the catalog.")
+        if shift_px < 0.5:
+            c_notes.append("Moves less than half a SPHEREx pixel across these passes, so the blink barely shows it.")
+        return dict(
+            name=name, source=source, kind="star",
+            marks=marks,
+            pm_ra_cosdec=round(obj["pm_ra"], 1), pm_dec=round(obj["pm_dec"], 1),
+            pm_err=round(float(obj.get("e_pm") or 0), 2),
+            speed_arcsec_yr=round(speed, 3), speed_label=f"{speed:.2f}″/yr",
+            position_angle=round(pa_of(obj["pm_ra"], obj["pm_dec"]), 1),
+            rms_arcsec=round(float(np.sqrt(np.mean(np.square(offsets)))) if offsets else 0.0, 2),
+            prediction=dict(date=P.mjd_to_iso(pred_mjd), mjd=pred_mjd, ra=float(pra), dec=float(pdec),
+                            x=pcol, y=n - 1 - prow, in_view=bool(pin),
+                            sigma_arcsec=round(sigma, 3), sigma_px=round(sigma / scale, 3)),
+            catalog=None, notes=c_notes,
+            confirmed=seen_n >= 2, seen_passes=seen_n, shift_px=round(shift_px, 2),
+            significance=round(speed * 1000 / max(float(obj.get("e_pm") or 0), 0.01), 0),
+            snr=max((m["snr"] for m in marks), default=0.0),
+        )
+
+    async def stars():
+        try:
+            # ≥ 0.1″/yr: slower stars don't visibly move at SPHEREx resolution.
+            return await irsa.gaia_movers(center[0], center[1], radius, min_pm_mas=100)
+        except Exception as e:
+            notes.append(f"Gaia catalog unavailable right now ({type(e).__name__}).")
+            return []
+
+    async def asteroids():
+        found = {}
+        per_pass = await asyncio.gather(
+            *(irsa.skybot_asteroids(center[0], center[1], radius, mjd + 2400000.5) for mjd in mjds),
+            return_exceptions=True,
+        )
+        if all(isinstance(r, Exception) for r in per_pass):
+            notes.append(f"Asteroid service unavailable right now ({type(per_pass[0]).__name__}).")
+            return []
+        for e, (mjd, rows) in enumerate(zip(mjds, per_pass)):
+            if isinstance(rows, Exception):
+                continue
+            for a in rows:
+                col, row, inside = to_px(a["ra"], a["dec"])
+                if inside:
+                    found.setdefault(a["name"], (a, []))[1].append(dict(
+                        epoch=e, mjd=mjd, date=P.mjd_to_iso(mjd), x=col, y=n - 1 - row,
+                        ra=a["ra"], dec=a["dec"], snr=0.0, refined=False))
+        out = []
+        picked = list(found.items())[:5]
+        positions = await asyncio.gather(
+            *(irsa.horizons_position(name, pred_mjd + 2400000.5) for name, _ in picked),
+            return_exceptions=True,
+        )
+        for (name, (a, marks)), pos in zip(picked, positions):
+            if pos is None or isinstance(pos, Exception):
+                continue
+            pcol, prow, pin = to_px(*pos)
+            rate = math.hypot(a["dra_arcsec_h"], a["ddec_arcsec_h"])
+            out.append(dict(
+                name=name, source="SkyBoT + JPL Horizons", kind="asteroid", marks=marks,
+                pm_ra_cosdec=round(a["dra_arcsec_h"] * 8766e3, 0), pm_dec=round(a["ddec_arcsec_h"] * 8766e3, 0),
+                pm_err=0.0, speed_arcsec_yr=round(rate * 8766, 0), speed_label=f"{rate:.0f}″/hour",
+                position_angle=round(pa_of(a["dra_arcsec_h"], a["ddec_arcsec_h"]), 1), rms_arcsec=0.0,
+                prediction=dict(date=P.mjd_to_iso(pred_mjd), mjd=pred_mjd, ra=pos[0], dec=pos[1],
+                                x=pcol, y=n - 1 - prow, in_view=bool(pin), sigma_arcsec=1.0,
+                                sigma_px=round(1.0 / scale, 3)),
+                catalog=None,
+                notes=[f"Asteroid ({a['kind']}, V ≈ {a['vmag']} mag), in the field during "
+                       f"{len(marks)} of {len(mjds)} passes.",
+                       "Asteroids orbit the Sun, so in 6 months it is far from this field: "
+                       "the position comes from JPL Horizons, not a straight line.",
+                       "It moves during each pass, so SPHEREx shows it smeared or not at all."],
+                confirmed=False, seen_passes=0, shift_px=0.0, significance=0.0,
+                snr=0.0,
+            ))
+        return out
+
+    gaia, rocks = await asyncio.gather(stars(), asteroids())
+
+    candidates = []
+    t_ra, t_dec = (irsa.propagate(target, 2016.0) if target.get("ra") is not None else (None, None))
+    target_matched = False
+    for star in gaia:
+        is_target = t_ra is not None and math.hypot(
+            (star["ra"] - t_ra) * math.cos(math.radians(star["dec"])), star["dec"] - t_dec) * 3600 < 5
+        name = (target.get("name") if is_target else None) or f"Gaia DR3 {star['source_id']}"
+        c = star_candidate(star, name, "Gaia DR3", star["gmag"])
+        if c:
+            c["is_target"] = bool(is_target)
+            target_matched |= bool(is_target)
+            candidates.append(c)
+    # The loaded target's own catalog motion (e.g. brown dwarfs too faint for Gaia).
+    if not target_matched and (target.get("pm_ra") or target.get("pm_dec")) and \
+            math.hypot(target.get("pm_ra") or 0, target.get("pm_dec") or 0) >= 30:
+        obj = dict(target, pm_ra=target.get("pm_ra") or 0.0, pm_dec=target.get("pm_dec") or 0.0)
+        c = star_candidate(obj, target.get("name") or "Target", "Target catalog")
+        if c:
+            c["is_target"] = True
+            candidates.append(c)
+    for a in rocks:
+        a["is_target"] = False
+        candidates.append(a)
+
+    # Target first, then the stars that move most across the passes, then asteroids.
+    candidates.sort(key=lambda c: (not c["is_target"], c["kind"] != "star", -c["shift_px"]))
+    candidates = candidates[:10]
+    for i, c in enumerate(candidates):
+        c["id"] = i
+    if not candidates and not notes:
+        notes.append("No catalogued star here moves faster than 0.1″/yr, and no known asteroid "
+                     "crossed the field during these passes.")
+    missing = res.get("missing_releases") or []
+    if missing:
+        notes.append(f"IRSA didn't answer for {', '.join(missing)} this time, so some survey passes "
+                     "are missing. Load again to fetch them.")
+    out = dict(candidates=candidates, passes=len(mjds), notes=notes)
+    if not any("unavailable" in m for m in notes):
+        j["movers_cache"] = (horizon_days, out)
+    return out
 
 
 @app.get("/api/job/{key}/fits.zip")

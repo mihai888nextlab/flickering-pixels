@@ -3,7 +3,8 @@ import type { NextConfig } from "next";
 const SPHEREX_API = process.env.SPHEREX_API_URL ?? "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Self-contained server bundle in .next/standalone (used by the Docker image).
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {

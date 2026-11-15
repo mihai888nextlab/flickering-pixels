@@ -100,11 +100,8 @@ type AladinApi = {
   ) => unknown;
 };
 
-declare global {
-  interface Window {
-    A?: AladinApi;
-  }
-}
+// window.A is declared globally by ToolSkyOverlay with a narrower shape; this demo uses more of the API.
+const getAladin = () => (window as unknown as { A?: AladinApi }).A;
 
 class ApiError extends Error {
   status: number;
@@ -258,7 +255,7 @@ export default function SpherexBlinkDemo() {
 
   const showAladin = useCallback((targetRa: number, targetDec: number, targetFov: number) => {
     const start = () => {
-      const A = window.A;
+      const A = getAladin();
       if (!A) {
         window.addEventListener("aladin-ready", () => showAladin(targetRa, targetDec, targetFov), {
           once: true,

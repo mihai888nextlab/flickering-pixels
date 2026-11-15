@@ -7,7 +7,7 @@ from astropy.time import Time
 from astropy.wcs import WCS
 from PIL import Image
 from reproject import reproject_interp
-from scipy.ndimage import maximum_filter
+from scipy.ndimage import binary_dilation, label, maximum_filter
 
 import config
 
@@ -392,6 +392,39 @@ def fit_motion(t_yr, xi, eta, sigma, t_pred):
         rms=rms,
         chi2=chi2,
     )
+
+
+def fill_saturated(arr, max_hole=60, nsigma=5.0):
+    """Fill the masked cores of saturated stars so they centroid as one bright blob.
+
+    Bright stars saturate: their core pixels are flagged and come through as NaN, leaving a
+    ring. A small NaN hole that does not touch the frame edge and is ringed by bright pixels
+    is set to above the ring's peak, so its center is measured from the whole star.
+    """
+    a = np.array(arr, float)
+    holes = ~np.isfinite(a)
+    if not holes.any() or holes.all():
+        return a
+    finite = a[~holes]
+    bg = float(np.median(finite))
+    noise = float(np.median(np.abs(finite - bg)) * 1.4826) or 1.0
+    lab, n = label(holes)
+    n_rows, n_cols = a.shape
+    for k in range(1, n + 1):
+        m = lab == k
+        size = int(m.sum())
+        if size > max_hole:
+            continue
+        rr, cc = np.nonzero(m)
+        if rr.min() == 0 or cc.min() == 0 or rr.max() == n_rows - 1 or cc.max() == n_cols - 1:
+            continue  # off the frame edge, not a star
+        ring = binary_dilation(m, iterations=1) & ~m & ~holes
+        if not ring.any():
+            continue
+        vals = a[ring]
+        if float(np.median(vals)) - bg > nsigma * noise:
+            a[m] = float(vals.max()) * 1.5 - 0.5 * bg
+    return a
 
 
 def mjd_to_iso(mjd):

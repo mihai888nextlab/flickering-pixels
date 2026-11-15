@@ -12,6 +12,7 @@ import {
   SRGBColorSpace,
   Vector3,
   type Group,
+  type PerspectiveCamera,
   type Mesh,
   type PointLight,
 } from "three";
@@ -438,7 +439,7 @@ function Telescope({ progress, drag }: { progress: RefObject<number>; drag: RefO
       fov = 32 + hold * 8 + plunge * 22;
     }
 
-    const camera = state.camera;
+    const camera = state.camera as PerspectiveCamera;
     const blend = 1 - Math.exp(-5 * delta);
     camera.position.x += (x - camera.position.x) * blend;
     camera.position.y += (y - camera.position.y) * blend;

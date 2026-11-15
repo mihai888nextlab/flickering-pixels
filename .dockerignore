@@ -1,0 +1,12 @@
+.git
+.next
+node_modules
+npm-debug.log*
+*.tsbuildinfo
+.env*
+!.env.example
+!.env.production.example
+spherex-blink-demo
+Dockerfile
+docker-compose*.yml
+Caddyfile

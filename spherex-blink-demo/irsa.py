@@ -56,6 +56,8 @@ _cutout_timeout = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 _search_timeout = httpx.Timeout(connect=8.0, read=22.0, write=8.0, pool=8.0)
 _SEARCH_DEADLINE_S = 90.0
 _SEARCH_TRIES = 2
+# After the first release answers, how long to keep waiting for the others.
+_PARTIAL_GRACE_S = 30.0
 _client = httpx.AsyncClient(
     timeout=_timeout,
     follow_redirects=True,
@@ -209,32 +211,44 @@ async def search_frames(ra, dec, collection, detector):
     return sorted(rows, key=offset)
 
 
-async def search(ra, dec, collections, radius=0.001, on_attempt=None):
+async def search(ra, dec, collections, radius=0.001, on_attempt=None, report=None):
     """Every SPHEREx image covering (ra, dec), across the requested releases.
 
+    Each release's answer is kept as it arrives; only releases that failed are asked again.
+    Once some releases have answered, the rest get up to _PARTIAL_GRACE_S more before the
+    search returns what it has, listing the missing releases in ``report["missing"]``
+    (older releases hold the older survey passes, which motion and blinking need).
     Transport failures retry until the deadline. A real empty catalog returns
-    immediately so “no coverage” is not reported as an archive timeout.
+    immediately so "no coverage" is not reported as an archive timeout.
     """
-    last_errors: list[str] = []
-    empty_passes = 0
     t0 = time.monotonic()
     colls = list(collections) or list(config.DEFAULT_COLLECTIONS)
+    got: dict[str, list] = {}  # release -> rows from a valid answer (possibly empty)
+    errors: dict[str, str] = {}
+    first_rows_at = None
+    empty_passes = 0
+
+    def collected():
+        return [r for c in colls for r in got.get(c, [])]
 
     for attempt in range(1, 13):
-        elapsed = time.monotonic() - t0
-        if elapsed > _SEARCH_DEADLINE_S:
+        now = time.monotonic()
+        if now - t0 > _SEARCH_DEADLINE_S:
             break
+        if first_rows_at is not None and now - first_rows_at > _PARTIAL_GRACE_S:
+            break
+        todo = [c for c in colls if c not in got]
         if on_attempt:
-            on_attempt(attempt, f"Querying IRSA SIA… attempt {attempt}")
-        rows = []
-        errors: list[str] = []
-        asked = 0
+            if got:
+                on_attempt(attempt, f"Got {len(got)}/{len(colls)} releases; waiting on "
+                                    f"{', '.join(todo)}… attempt {attempt}")
+            else:
+                on_attempt(attempt, f"Querying IRSA SIA… attempt {attempt}")
 
         # Sequential collections — parallel POS queries often stall IRSA under load.
-        for coll in colls:
+        for coll in todo:
             if time.monotonic() - t0 > _SEARCH_DEADLINE_S:
                 break
-            asked += 1
 
             def _retry_note(retry_n, err, _coll=coll, _attempt=attempt):
                 if on_attempt:
@@ -259,31 +273,38 @@ async def search(ra, dec, collections, radius=0.001, on_attempt=None):
                     on_retry=_retry_note,
                 )
             except Exception as e:
-                errors.append(f"{coll}: {e}")
+                errors[coll] = f"{coll}: {e}"
                 continue
             parsed, parse_err = _parse_sia_csv(r.text, coll)
             if parse_err:
-                errors.append(f"{coll}: {parse_err}")
+                errors[coll] = f"{coll}: {parse_err}"
                 continue
-            rows.extend(parsed)
+            got[coll] = parsed
+            errors.pop(coll, None)
 
-        if rows:
-            rows.sort(key=lambda r: r["mjd"])
-            return rows
-        # Every collection that was actually queried returned a valid empty table.
-        if asked and asked == len(colls) and not errors:
+        rows = collected()
+        if rows and first_rows_at is None:
+            first_rows_at = time.monotonic()
+        if len(got) == len(colls):
+            if rows:
+                break
+            # Every release answered with an empty table. Ask once more: IRSA occasionally
+            # answers 200 with an empty table under load.
             empty_passes += 1
-            # One extra pass: IRSA occasionally answers 200 with an empty table under load.
             if empty_passes >= 2:
                 return []
-        else:
-            empty_passes = 0
-            last_errors = errors or [f"attempt {attempt}: no rows"]
+            got.clear()
         await asyncio.sleep(min(8, 1.5 + attempt * 0.5))
 
-    if not last_errors:
+    rows = collected()
+    if rows:
+        if report is not None:
+            report["missing"] = [c for c in colls if c not in got]
+        rows.sort(key=lambda r: r["mjd"])
+        return rows
+    if not errors:
         return []
-    detail = " · ".join(last_errors)
+    detail = " · ".join(errors.values())
     raise IrsaUnavailable(
         "Could not reach the IRSA image archive in time. "
         "The service is often slow — lock again in a moment. "
@@ -340,7 +361,10 @@ async def get_cutout(url, ra, dec, size):
             tmp = path.with_suffix(".part")
             keep.writeto(tmp, overwrite=True)
             tmp.rename(path)
-    return fits.open(path, memmap=False)
+    # Read the whole file into memory: astropy opens FITS lazily, and an HDUList returned
+    # straight from fits.open(path) keeps its file descriptor open for as long as it lives
+    # (jobs keep their cutouts) — that leaked descriptors until "Too many open files".
+    return fits.open(io.BytesIO(path.read_bytes()))
 
 
 class NameResolveUnavailable(RuntimeError):
@@ -1177,3 +1201,105 @@ async def describe_target(target: dict) -> str:
     if hint and hint.lower() not in base.lower():
         return _trim_blurb(f"{base.rstrip('. ')}. {hint}", max_chars=300)
     return _trim_blurb(base, max_chars=300)
+
+
+# ── Catalog motion: Gaia DR3 stars and known asteroids in a field ─────────────
+
+# US mirror of CDS VizieR (the Strasbourg / ESA services are often unreachable).
+VIZIER_ASU = "https://vizier.cfa.harvard.edu/viz-bin/asu-tsv"
+SKYBOT_URL = "https://ssp.imcce.fr/webservices/skybot/api/conesearch.php"
+HORIZONS_URL = "https://ssd.jpl.nasa.gov/api/horizons.api"
+_catalog_timeout = httpx.Timeout(connect=8.0, read=25.0, write=8.0, pool=8.0)
+
+
+def _parse_asu_tsv(text):
+    """VizieR ASU TSV → list of dicts (skips comments, the units row and the dashes row)."""
+    lines = [ln for ln in text.splitlines() if ln.strip() and not ln.startswith("#")]
+    if len(lines) < 3:
+        return []
+    head = [h.strip() for h in lines[0].split("\t")]
+    out = []
+    for ln in lines[3:]:
+        vals = [v.strip() for v in ln.split("\t")]
+        if len(vals) == len(head):
+            out.append(dict(zip(head, vals)))
+    return out
+
+
+async def gaia_movers(ra, dec, radius_deg, min_pm_mas=30.0, limit=40):
+    """Gaia DR3 stars in a cone with total proper motion above ``min_pm_mas`` (mas/yr),
+    fastest first. Positions are at Gaia's epoch J2016.0."""
+    r = await _client.get(VIZIER_ASU, params={
+        "-source": "I/355/gaiadr3",
+        "-c": f"{ra:.6f} {dec:+.6f}",
+        "-c.rd": f"{radius_deg:.4f}",
+        "-out": "Source,RA_ICRS,DE_ICRS,pmRA,pmDE,e_pmRA,e_pmDE,Gmag,PM",
+        "PM": f">{min_pm_mas:g}",
+        "-sort": "-PM",
+        "-out.max": str(limit),
+    }, timeout=_catalog_timeout)
+    r.raise_for_status()
+    stars = []
+    for row in _parse_asu_tsv(r.text):
+        try:
+            stars.append(dict(
+                source_id=row["Source"], ra=float(row["RA_ICRS"]), dec=float(row["DE_ICRS"]),
+                pm_ra=float(row["pmRA"]), pm_dec=float(row["pmDE"]),
+                e_pm=math.hypot(float(row["e_pmRA"] or 0), float(row["e_pmDE"] or 0)),
+                gmag=float(row["Gmag"]) if row.get("Gmag") else None,
+                ref_epoch=2016.0,
+            ))
+        except (KeyError, ValueError):
+            continue
+    return stars
+
+
+def _sexa(value, hours):
+    parts = [float(p) for p in value.replace(":", " ").split()]
+    sign = -1 if value.strip().startswith("-") else 1
+    deg = abs(parts[0]) + (parts[1] if len(parts) > 1 else 0) / 60 + (parts[2] if len(parts) > 2 else 0) / 3600
+    return sign * deg * (15 if hours else 1)
+
+
+async def skybot_asteroids(ra, dec, radius_deg, jd):
+    """Known solar-system objects inside a cone at one moment (IMCCE SkyBoT)."""
+    r = await _client.get(SKYBOT_URL, params={
+        "-ep": f"{jd:.5f}", "-ra": f"{ra:.6f}", "-dec": f"{dec:+.6f}", "-rd": f"{radius_deg:.4f}",
+        "-mime": "json", "-output": "basic", "-loc": "500",
+    }, timeout=_catalog_timeout)
+    r.raise_for_status()
+    try:
+        data = r.json()
+    except ValueError:
+        return []  # SkyBoT answers with a plain-text note when nothing is in the field
+    out = []
+    for row in data if isinstance(data, list) else []:
+        try:
+            out.append(dict(
+                name=row["Name"], ra=_sexa(row["RA (hms)"], True), dec=_sexa(row["DEC (dms)"], False),
+                vmag=row.get("VMag (mag)"), kind=row.get("Class") or "asteroid",
+                dra_arcsec_h=float(row.get("dRA (arcsec/h)") or 0),
+                ddec_arcsec_h=float(row.get("dDEC (arcsec/h)") or 0),
+            ))
+        except (KeyError, ValueError):
+            continue
+    return out
+
+
+async def horizons_position(name, jd):
+    """Geocentric RA/Dec of a solar-system object at ``jd`` from JPL Horizons, or None."""
+    provisional = re.fullmatch(r"\d{4} [A-Z]{2}\d*", name.strip())
+    command = f"DES={name};" if provisional else f"{name};"
+    r = await _client.get(HORIZONS_URL, params={
+        "format": "text", "COMMAND": f"'{command}'", "OBJ_DATA": "NO", "MAKE_EPHEM": "YES",
+        "EPHEM_TYPE": "OBSERVER", "CENTER": "'500@399'", "TLIST": f"'{jd:.5f}'",
+        "QUANTITIES": "'1'", "ANG_FORMAT": "DEG",
+    }, timeout=_catalog_timeout)
+    r.raise_for_status()
+    m = re.search(r"\$\$SOE\s*(.*?)\s*\$\$EOE", r.text, re.S)
+    if not m:
+        return None
+    nums = re.findall(r"[-+]?\d+\.\d+", m.group(1).splitlines()[0])
+    if len(nums) < 3:
+        return None
+    return float(nums[-2]), float(nums[-1])

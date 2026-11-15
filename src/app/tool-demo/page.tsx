@@ -1,3 +1,4 @@
+import RequireUser from "@/components/RequireUser";
 import SpherexBlinkDemo from "@/components/SpherexBlinkDemo";
 import type { Metadata } from "next";
 import { Suspense } from "react";
@@ -18,7 +19,9 @@ export default function ToolDemoPage() {
         </div>
       }
     >
-      <SpherexBlinkDemo />
+      <RequireUser next="/tool-demo">
+        <SpherexBlinkDemo />
+      </RequireUser>
     </Suspense>
   );
 }

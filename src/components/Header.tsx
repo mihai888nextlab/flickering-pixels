@@ -2,12 +2,14 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import AuthButton from "@/components/AuthButton";
 
 const links = [
   { href: "/#challenge", label: "Challenge" },
   { href: "/#blink", label: "Blink" },
   { href: "/#approach", label: "Approach" },
   { href: "/#targets", label: "Targets" },
+  { href: "/gallery", label: "Gallery" },
 ];
 
 const specks = [
@@ -134,6 +136,7 @@ export default function Header({ pinned = false, resting = false }: { pinned?: b
               <a className="btn" href="/tool" onClick={() => setOpen(false)}>
                 The tool
               </a>
+              <AuthButton variant="menu" />
             </nav>
           ) : null}
         </>
@@ -175,6 +178,7 @@ export default function Header({ pinned = false, resting = false }: { pinned?: b
             </nav>
 
             <div className="header-actions">
+              <AuthButton />
               <a className="btn header-cta" href="/tool">
                 The tool
               </a>
@@ -207,6 +211,7 @@ export default function Header({ pinned = false, resting = false }: { pinned?: b
               <a className="btn" href="/tool" onClick={() => setOpen(false)}>
                 The tool
               </a>
+              <AuthButton variant="menu" />
             </nav>
           )}
         </div>

@@ -11,8 +11,11 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import Link from "next/link";
 import ToolSkyOverlay from "@/components/ToolSkyOverlay";
+import { useBookmarks, type Bookmark } from "@/lib/useBookmarks";
 import {
+  bandMissingReason,
   detectorForWavelength,
   FALLBACK_DETECTORS,
   imageForVisitBand,
@@ -24,6 +27,8 @@ import {
   type ContamFlagName,
   type DetectorBand,
   type MotionPrediction,
+  type MoverCandidate,
+  type MoversResult,
   type SpectrumResult,
   type SpherexConfig,
   type SpherexFrame,
@@ -41,6 +46,10 @@ type TrackState = {
   error: string | null;
 };
 const EMPTY_TRACK: TrackState = { job: null, marks: [], pred: null, busy: false, error: null };
+
+/** Automatic moving-object search, run once per finished load. */
+type MoversState = { job: string | null; busy: boolean; data: MoversResult | null; error: string | null };
+const EMPTY_MOVERS: MoversState = { job: null, busy: false, data: null, error: null };
 const TRACK_MIN_MARKS = 3;
 const TRACK_HORIZON_DAYS = 182.6;
 
@@ -1159,7 +1168,10 @@ export default function ToolBench() {
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [skyOpen, setSkyOpen] = useState(false);
   const [tracking, setTracking] = useState(false);
+  const bookmarks = useBookmarks();
+  const [bookmarkNote, setBookmarkNote] = useState<string | null>(null);
   const [trackState, setTrackState] = useState<TrackState>(EMPTY_TRACK);
+  const [moversState, setMoversState] = useState<MoversState>(EMPTY_MOVERS);
   const fieldRef = useRef<HTMLDivElement>(null);
   // Same node as fieldRef, as state so render-time overlay math doesn't read a ref.
   const [fieldNode, setFieldNode] = useState<HTMLDivElement | null>(null);
@@ -1167,12 +1179,6 @@ export default function ToolBench() {
     fieldRef.current = el;
     setFieldNode(el);
   }, []);
-  // Scroll-wheel FOV: what to reload, the unrounded FOV mid-gesture, and the settle timer.
-  const lastLoadRef = useRef<{ body: Record<string, unknown>; mode: UserMode } | null>(null);
-  const wheelFovRef = useRef<number | null>(null);
-  const wheelTimerRef = useRef<number | null>(null);
-  /** Live zoom preview of the loaded image while the wheel turns (cleared by the next load). */
-  const [zoom, setZoom] = useState<{ job: string; base: number } | null>(null);
   const pollTimerRef = useRef<number | null>(null);
   const activeJobRef = useRef<string | null>(null);
   const bootstrapped = useRef(false);
@@ -1232,6 +1238,10 @@ export default function ToolBench() {
     : visits[visitSafe];
   // Marks belong to the job they were made on; a new target starts clean.
   const track = trackState.job === job ? trackState : EMPTY_TRACK;
+  const movers = moversState.job === job ? moversState : EMPTY_MOVERS;
+  /** The prediction on screen came from the automatic search (not from hand marks). */
+  const autoPick: MoverCandidate | null =
+    track.pred && !track.marks.length && "significance" in track.pred ? (track.pred as MoverCandidate) : null;
   const frameEpoch = frame ? visits.indexOf(frame) : -1;
   const trackReady = Boolean(result) && visits.length >= TRACK_MIN_MARKS && stageExtra === "none" && !showRgb;
   const trackOn = tracking && trackReady;
@@ -1410,6 +1420,34 @@ export default function ToolBench() {
   const ledWarn = statusErr || (!loading && !result && Boolean(status));
   const ledLive = Boolean(result) || loading;
 
+  // On demand (the Find movers button): the backend looks up the field's fast stars
+  // (Gaia DR3, plus the target's own catalog motion) and known asteroids (SkyBoT, with JPL
+  // Horizons for 6 months ahead), and checks each star against the SPHEREx passes. The best
+  // one (the loaded target first) goes straight onto the stage with its 6-month position.
+  const findMovers = useCallback(async (key: string) => {
+    setMoversState({ job: key, busy: true, data: null, error: null });
+    try {
+      const data = await spherexFetch<MoversResult>(
+        `/api/job/${key}/movers?horizon_days=${TRACK_HORIZON_DAYS}`,
+      );
+      if (activeJobRef.current !== key) return;
+      setMoversState({ job: key, busy: false, data, error: null });
+      const best = data.candidates[0];
+      if (best) {
+        // Don't overwrite marks the user already started by hand.
+        setTrackState((s) =>
+          s.job === key && (s.marks.length || s.pred)
+            ? s
+            : { job: key, marks: [], pred: best, busy: false, error: null },
+        );
+      }
+    } catch (err) {
+      if (activeJobRef.current !== key) return;
+      const error = err instanceof Error ? err.message : "Motion search failed";
+      setMoversState({ job: key, busy: false, data: null, error });
+    }
+  }, []);
+
   const poll = useCallback(async (key: string) => {
     if (activeJobRef.current !== key) return;
     try {
@@ -1448,8 +1486,24 @@ export default function ToolBench() {
         const span = s.result.epochs.length
           ? `${s.result.epochs[0].start} → ${s.result.epochs.at(-1)!.end}`
           : "no passes yet";
+        // Say which requested bands came back empty, and why (archive gap vs. download timeouts).
+        const empty = (s.result.band_coverage ?? []).filter((c) => c.used === 0);
+        const timedOut = empty.filter((c) => c.found > 0 && c.downloaded === 0);
+        const notObserved = empty.filter((c) => c.found === 0);
+        const clipped = empty.filter((c) => c.found > 0 && c.downloaded > 0);
+        const ids = (list: typeof empty) => list.map((c) => `D${c.detector}`).join(", ");
+        const missing = [
+          notObserved.length ? `${ids(notObserved)} not observed here yet` : "",
+          timedOut.length ? `${ids(timedOut)} timed out (Load again to retry)` : "",
+          clipped.length ? `${ids(clipped)} only at a detector edge` : "",
+        ].filter(Boolean);
+        const lostReleases = s.result.missing_releases ?? [];
+        if (lostReleases.length) {
+          missing.push(`IRSA skipped ${lostReleases.join(", ")}, so some passes are missing (Load again)`);
+        }
         setStatus(
-          `${s.result.n_used} frames · ${s.result.epochs.length} survey passes · ${span}`,
+          `${s.result.n_used} frames · ${s.result.epochs.length} survey passes · ${span}` +
+            (missing.length ? ` · ${missing.join(" · ")}` : ""),
         );
         return;
       }
@@ -1500,7 +1554,6 @@ export default function ToolBench() {
 
   const startLoad = useCallback(
     async (body: Record<string, unknown>, nextMode: UserMode = mode) => {
-      lastLoadRef.current = { body, mode: nextMode };
       if (pollTimerRef.current) {
         window.clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
@@ -1706,46 +1759,25 @@ export default function ToolBench() {
     }
   }, [visit, timelineCount]);
 
-  // Wheel over the sky image changes FOV: instant zoom preview, then reload once the wheel rests.
-  // Native listener because React's onWheel is passive and can't stop the page from scrolling.
-  useEffect(() => {
-    const el = fieldNode;
-    if (!el) return;
-    function onWheel(event: WheelEvent) {
-      if (!result || !job || !lastLoadRef.current || event.ctrlKey) return;
-      event.preventDefault();
-      const base = wheelFovRef.current ?? fov;
-      // Pixel-mode deltas (~100 per mouse notch, ~2 per trackpad tick); scroll down = zoom out.
-      const dy = event.deltaMode === 1 ? event.deltaY * 33 : event.deltaY;
-      const raw = clampToolFov(base * Math.exp(dy * 0.002));
-      wheelFovRef.current = raw;
-      const next = Math.round(raw * 100) / 100;
-      setFov(next);
-      setZoom((z) => (z && z.job === job ? z : { job, base: result.fov }));
-      if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
-      const reload = lastLoadRef.current;
-      wheelTimerRef.current = window.setTimeout(() => {
-        wheelTimerRef.current = null;
-        wheelFovRef.current = null;
-        if (Math.abs(next - result.fov) < 0.005) {
-          setZoom(null); // scrolled back to where we started: nothing to fetch
-          return;
-        }
-        void startLoad({ ...reload.body, fov: next }, reload.mode);
-      }, 650);
+  function openBookmark(b: Bookmark) {
+    setPresetKey(null);
+    setNameQuery("");
+    setRa(formatCoord(b.ra, "ra"));
+    setDec(formatCoord(b.dec, "dec"));
+    const bFov = clampToolFov(b.fov);
+    setFov(bFov);
+    void startLoad({ ra: b.ra, dec: b.dec, fov: bFov });
+  }
+
+  async function saveBookmark(input: { label: string; ra: number; dec: number; fov: number; kind: "target" | "prediction" }) {
+    const existing = bookmarks.findNear(input);
+    if (existing) {
+      setBookmarkNote(`Already saved as “${existing.label}”.`);
+      return;
     }
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [fieldNode, fov, job, result, startLoad]);
-
-  useEffect(
-    () => () => {
-      if (wheelTimerRef.current) window.clearTimeout(wheelTimerRef.current);
-    },
-    [],
-  );
-
-  const zoomScale = zoom && zoom.job === job && result ? zoom.base / fov : null;
+    const saved = await bookmarks.save(input);
+    if (saved) setBookmarkNote(`Saved “${saved.label}”.`);
+  }
 
   function pickPreset(key: string) {
     if (!cfg?.presets[key]) return;
@@ -2034,6 +2066,18 @@ export default function ToolBench() {
                 <h1>{isAmateur ? "Explore" : "Lab"}</h1>
               </div>
             </div>
+            <Link
+              href={
+                presetKey
+                  ? `/tool-map?preset=${encodeURIComponent(presetKey)}`
+                  : result
+                    ? `/tool-map?ra=${result.target.ra.toFixed(5)}&dec=${result.target.dec.toFixed(5)}`
+                    : "/tool-map"
+              }
+              className="tool-map-test-link"
+            >
+              Map test
+            </Link>
           </header>
 
           <div className="tool-mode-switch" role="group" aria-label="User mode">
@@ -2212,7 +2256,70 @@ export default function ToolBench() {
             </div>
           </div>
 
+          <div className="tool-channel-bank tool-bookmarks" id="bookmarks">
+            <div className="tool-channel-cap">
+              <p className="tool-side-label">Bookmarks</p>
+              <span>{bookmarks.loaded ? `${bookmarks.items.length} saved` : "Loading"}</span>
+            </div>
+            {bookmarks.items.length ? (
+              <div className="tool-channels" role="list">
+                {bookmarks.items.map((b) => {
+                  const here = result ? bookmarks.findNear(result.target)?.id === b.id : false;
+                  return (
+                    <div key={b.id} role="listitem" className="tool-bookmark-row">
+                      <button
+                        type="button"
+                        className={here ? "tool-channel is-on" : "tool-channel"}
+                        onClick={() => openBookmark(b)}
+                        disabled={loading && here}
+                        title={`${b.ra.toFixed(5)}°, ${b.dec >= 0 ? "+" : ""}${b.dec.toFixed(5)}° · FOV ${b.fov.toFixed(2)}°`}
+                      >
+                        <i aria-hidden="true" />
+                        <span className="tool-channel-idx">{b.kind === "prediction" ? "PRD" : "★"}</span>
+                        <span className="tool-channel-name">{b.label}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="tool-bookmark-del"
+                        aria-label={`Delete bookmark ${b.label}`}
+                        onClick={() => void bookmarks.remove(b.id)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : bookmarks.loaded ? (
+              <p className="tool-bookmark-empty">
+                Lock a target, then press <strong>Bookmark</strong> to keep it here.
+              </p>
+            ) : null}
+            {bookmarks.error || bookmarkNote ? (
+              <p className={bookmarks.error ? "tool-bookmark-note is-error" : "tool-bookmark-note"} role="status">
+                {bookmarks.error ?? bookmarkNote}
+              </p>
+            ) : null}
+          </div>
+
           <div className="tool-side-actions">
+            <button
+              type="button"
+              className="tool-side-btn"
+              disabled={!result}
+              onClick={() =>
+                result &&
+                void saveBookmark({
+                  label: objectName ?? result.target.name,
+                  ra: result.target.ra,
+                  dec: result.target.dec,
+                  fov: result.fov || fov,
+                  kind: "target",
+                })
+              }
+            >
+              {result && bookmarks.findNear(result.target) ? "★ Bookmarked" : "☆ Bookmark"}
+            </button>
             <button type="button" className="tool-side-btn" onClick={copyShareLink} disabled={!result && !presetKey}>
               Copy share link
             </button>
@@ -2242,14 +2349,20 @@ export default function ToolBench() {
                   {activeDetectors.map((d) => {
                     const loaded = result?.detectors.some((x) => x.detector === d.id);
                     const on = stageExtra === "none" && !showRgb && detectorId === d.id;
+                    const why =
+                      result && !loaded
+                        ? (bandMissingReason(result.band_coverage?.find((c) => c.detector === d.id)) ??
+                          "No usable frames in this band for this load.")
+                        : undefined;
                     return (
                       <button
                         key={d.id}
                         type="button"
                         className={on ? "tool-band-key is-on" : "tool-band-key"}
                         disabled={Boolean(result) && !loaded}
+                        title={why ? `${d.label}: ${why}` : undefined}
                         aria-pressed={on}
-                        aria-label={`${d.label} ${d.lo.toFixed(2)} to ${d.hi.toFixed(2)} micrometers`}
+                        aria-label={`${d.label} ${d.lo.toFixed(2)} to ${d.hi.toFixed(2)} micrometers${why ? `. Unavailable: ${why}` : ""}`}
                         onClick={() => selectDetector(d.id)}
                       >
                         <i aria-hidden="true" />
@@ -2375,7 +2488,7 @@ export default function ToolBench() {
                 </span>
               </div>
               <div
-                className={`tool-field is-live${isAmateur ? " is-amateur" : ""}${trackOn ? " is-tracking" : ""}${zoomScale ? " is-zooming" : ""}`}
+                className={`tool-field is-live${isAmateur ? " is-amateur" : ""}${trackOn ? " is-tracking" : ""}`}
                 data-lenis-prevent
                 ref={attachField}
                 style={{ ["--field" as string]: showRgb ? RGB_VIEW_COLOR : active.color }}
@@ -2388,7 +2501,6 @@ export default function ToolBench() {
                     src={image.src}
                     alt={image.label}
                     draggable={false}
-                    style={zoomScale ? { transform: `scale(${zoomScale})` } : undefined}
                   />
                 ) : !loading && !statusErr ? (
                   <p className="tool-empty">Lock a position to load SPHEREx frames.</p>
@@ -2449,7 +2561,7 @@ export default function ToolBench() {
                     data-layout={fieldLayoutEpoch}
                   />
                 ) : null}
-                {result && image && track.marks.length && stageExtra === "none" && !showRgb
+                {result && image && (track.marks.length > 0 || track.pred) && stageExtra === "none" && !showRgb
                   ? (() => {
                       const npix = result.npix;
                       // After a fit, draw the centroid-refined positions; before, the raw clicks.
@@ -2740,25 +2852,63 @@ export default function ToolBench() {
                 <div className="tool-spectrum-head">
                   <div className="tool-dash-plate is-compact">
                     <i className={track.pred ? "tool-dash-led is-live" : "tool-dash-led"} aria-hidden="true" />
-                    <p className="tool-side-label">Predict · +6 months</p>
+                    <p className="tool-side-label">Moving objects · +6 months</p>
                   </div>
                   <div className="tool-track-actions">
-                    {track.marks.length ? (
+                    {track.marks.length || track.pred ? (
                       <button type="button" className="tool-spectrum-expand" onClick={resetTrack}>
-                        Reset
+                        Clear
                       </button>
                     ) : null}
+                    <button
+                      type="button"
+                      className="tool-spectrum-expand"
+                      disabled={!result || !job || movers.busy}
+                      aria-busy={movers.busy}
+                      title="Look up moving stars and asteroids in this field and predict where they'll be in 6 months"
+                      onClick={() => {
+                        if (!job) return;
+                        setTracking(false);
+                        void findMovers(job);
+                      }}
+                    >
+                      {movers.busy ? "Searching…" : movers.error ? "Retry" : "Find movers"}
+                    </button>
                     <button
                       type="button"
                       className={trackOn ? "tool-spectrum-expand is-on" : "tool-spectrum-expand"}
                       aria-pressed={trackOn}
                       disabled={!result || visits.length < TRACK_MIN_MARKS}
+                      title="Mark an object yourself in 3 or more survey passes"
                       onClick={toggleTracking}
                     >
-                      {trackOn ? "Done" : "Track"}
+                      {trackOn ? "Done" : "By hand"}
                     </button>
                   </div>
                 </div>
+
+                {movers.data?.candidates.length ? (
+                  <div className="tool-track-actions tool-track-movers" role="group" aria-label="Moving objects found">
+                    {movers.data.candidates.map((c, i) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={autoPick?.id === c.id ? "tool-spectrum-expand is-on" : "tool-spectrum-expand"}
+                        aria-pressed={autoPick?.id === c.id}
+                        title={`${c.name} · ${c.source}${
+                          c.kind === "star" ? ` · seen by SPHEREx in ${c.seen_passes}/${c.marks.length} passes` : ""
+                        }`}
+                        onClick={() => {
+                          setTracking(false);
+                          setTrackState({ job, marks: [], pred: c, busy: false, error: null });
+                        }}
+                      >
+                        {c.is_target ? "Target" : c.kind === "asteroid" ? `☄ ${c.name}` : `★ ${i + 1}`} ·{" "}
+                        {c.speed_label} {compassPoint(c.position_angle)}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
 
                 {track.pred ? (
                   (() => {
@@ -2766,6 +2916,16 @@ export default function ToolBench() {
                     const fmt = (v: number) => v.toFixed(5);
                     return (
                       <>
+                        {autoPick ? (
+                          <p className="tool-track-source">
+                            {autoPick.name} · {autoPick.source}
+                            {autoPick.kind === "star"
+                              ? autoPick.confirmed
+                                ? ` · confirmed by SPHEREx (${autoPick.seen_passes}/${autoPick.marks.length} passes)`
+                                : " · not visible to SPHEREx here"
+                              : ""}
+                          </p>
+                        ) : null}
                         <div className="tool-meter-row" role="group" aria-label="Predicted position">
                           <div className="tool-meter">
                             <span className="tool-meter-label">On</span>
@@ -2786,7 +2946,9 @@ export default function ToolBench() {
                         <div className="tool-meter-row" role="group" aria-label="Fitted motion">
                           <div className="tool-meter">
                             <span className="tool-meter-label">Speed</span>
-                            <output className="tool-meter-value">{p.speed_arcsec_yr.toFixed(2)}″/yr</output>
+                            <output className="tool-meter-value">
+                              {autoPick ? autoPick.speed_label : `${p.speed_arcsec_yr.toFixed(2)}″/yr`}
+                            </output>
                           </div>
                           <div className="tool-meter">
                             <span className="tool-meter-label">Heading</span>
@@ -2795,7 +2957,7 @@ export default function ToolBench() {
                             </output>
                           </div>
                         </div>
-                        {!isAmateur ? (
+                        {!isAmateur && autoPick?.kind !== "asteroid" ? (
                           <div className="tool-meter is-wide">
                             <span className="tool-meter-label">μ (mas/yr)</span>
                             <output className="tool-meter-value">
@@ -2818,6 +2980,27 @@ export default function ToolBench() {
                           ))}
                         </div>
                         <div className="tool-track-actions">
+                          <Link
+                            className="tool-spectrum-expand"
+                            href={`/tool-map?ra=${p.prediction.ra.toFixed(5)}&dec=${p.prediction.dec.toFixed(5)}&fov=0.2`}
+                          >
+                            Open in sky map
+                          </Link>
+                          <button
+                            type="button"
+                            className="tool-spectrum-expand"
+                            onClick={() =>
+                              void saveBookmark({
+                                label: `${objectName ?? result?.target.name ?? "Object"} · ${p.prediction.date}`,
+                                ra: p.prediction.ra,
+                                dec: p.prediction.dec,
+                                fov: result?.fov ?? fov,
+                                kind: "prediction",
+                              })
+                            }
+                          >
+                            Bookmark
+                          </button>
                           <button
                             type="button"
                             className="tool-spectrum-expand"
@@ -2837,18 +3020,31 @@ export default function ToolBench() {
                   <>
                     <div className="tool-spectrum-empty">
                       {!result
-                        ? "Load a target to track a moving object."
-                        : visits.length < TRACK_MIN_MARKS
-                          ? `Needs at least ${TRACK_MIN_MARKS} survey passes; this field has ${visits.length}.`
-                          : track.error
-                            ? track.error
-                            : trackOn
-                              ? `Click the moving object in each pass — ${track.marks.length}/${TRACK_MIN_MARKS} marked${
-                                  track.marks.some((m) => m.epoch === frameEpoch) ? " (this pass ✓)" : ""
-                                }.`
-                              : track.marks.length
-                                ? `${track.marks.length} pass${track.marks.length === 1 ? "" : "es"} marked.`
-                                : "Press Track, then click the moving object in 3 or more survey passes."}
+                        ? "Load a target, then press Find movers."
+                        : track.error
+                          ? track.error
+                          : trackOn
+                            ? `Click the moving object in each pass — ${track.marks.length}/${TRACK_MIN_MARKS} marked${
+                                track.marks.some((m) => m.epoch === frameEpoch) ? " (this pass ✓)" : ""
+                              }.`
+                            : track.marks.length
+                              ? `${track.marks.length} pass${track.marks.length === 1 ? "" : "es"} marked.`
+                              : movers.busy
+                                ? "Measuring the motion of every star in the field…"
+                                : movers.error
+                                  ? `Automatic search failed: ${movers.error}`
+                                  : movers.data
+                                    ? movers.data.candidates.length
+                                      ? "Pick a moving object above to see its predicted path."
+                                      : [
+                                          ...movers.data.notes,
+                                          visits.length >= TRACK_MIN_MARKS
+                                            ? "Spotted something yourself? Use By hand."
+                                            : "",
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" ")
+                                    : "Press Find movers to look up moving stars and asteroids in this field, or mark one By hand."}
                     </div>
                     {track.marks.length >= TRACK_MIN_MARKS ? (
                       <button

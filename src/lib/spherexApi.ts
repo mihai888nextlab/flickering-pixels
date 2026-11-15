@@ -70,6 +70,23 @@ export type SpherexTarget = {
   description?: string | null;
 };
 
+/** Per-band bookkeeping for one load: frames in the archive → downloaded → usable at this spot. */
+export type SpherexBandCoverage = {
+  detector: number;
+  found: number;
+  downloaded: number;
+  used: number;
+};
+
+/** Why a requested band has nothing on the stage, or null when it loaded. */
+export function bandMissingReason(c: SpherexBandCoverage | undefined): string | null {
+  if (!c || c.used > 0) return null;
+  if (c.found === 0) return "SPHEREx hasn't observed this spot in this band yet (no frames in the released data).";
+  if (c.downloaded === 0)
+    return `IRSA has ${c.found} frame${c.found === 1 ? "" : "s"} here, but every download timed out. Press Load to retry.`;
+  return "Its frames only catch this spot at a detector edge, so none were usable.";
+}
+
 export type SpherexResult = {
   target: SpherexTarget;
   photo?: SpherexPhoto;
@@ -80,6 +97,10 @@ export type SpherexResult = {
   frames: SpherexFrame[];
   epochs: SpherexEpoch[];
   detectors: SpherexDetector[];
+  /** Older backends omit this. */
+  band_coverage?: SpherexBandCoverage[];
+  /** Releases IRSA didn't answer for during this load (their survey passes are missing). */
+  missing_releases?: string[];
   rgb: string | null;
   contam_bits?: ContamFlagName[];
 };
@@ -132,6 +153,32 @@ export type MotionPrediction = {
   };
   /** Where the catalog proper motion puts the target at the same date, when known. */
   catalog: { ra: number; dec: number; separation_arcsec: number } | null;
+  notes: string[];
+};
+
+/** A catalogued moving object in the field (Gaia star, the target, or a known asteroid). */
+export type MoverCandidate = MotionPrediction & {
+  id: number;
+  name: string;
+  /** Where the motion comes from, e.g. "Gaia DR3" or "SkyBoT + JPL Horizons". */
+  source: string;
+  kind: "star" | "asteroid";
+  /** Human-readable speed ("10.39″/yr", "43″/hour"). */
+  speed_label: string;
+  /** SPHEREx shows a source at the catalog position in 2+ passes. */
+  confirmed: boolean;
+  seen_passes: number;
+  /** Catalog motion across the loaded passes, in SPHEREx pixels. */
+  shift_px: number;
+  significance: number;
+  snr: number;
+  /** The loaded target. */
+  is_target: boolean;
+};
+
+export type MoversResult = {
+  candidates: MoverCandidate[];
+  passes: number;
   notes: string[];
 };
 

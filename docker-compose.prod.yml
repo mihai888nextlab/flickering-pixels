@@ -1,0 +1,75 @@
+# Production stack: Postgres + SPHEREx API + Next.js + Caddy (automatic HTTPS).
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+# Only Caddy is reachable from outside (ports 80/443). Everything else stays on the internal network.
+name: flickering-pixels
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: flicker
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.production}
+      POSTGRES_DB: flickering_pixels
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flicker -d flickering_pixels"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build: { context: ., target: migrate }
+    environment:
+      DATABASE_URL: postgres://flicker:${POSTGRES_PASSWORD}@db:5432/flickering_pixels
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    build: ./spherex-blink-demo
+    restart: unless-stopped
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    environment:
+      SPHEREX_CONCURRENCY: ${SPHEREX_CONCURRENCY:-14}
+    volumes:
+      - spherex-cache:/data/cache
+
+  web:
+    build: { context: ., target: runner, args: { SPHEREX_API_URL: "http://api:8000" } }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://flicker:${POSTGRES_PASSWORD}@db:5432/flickering_pixels
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env.production}
+      BETTER_AUTH_URL: https://${DOMAIN:?set DOMAIN in .env.production}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID in .env.production}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET in .env.production}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+      api: { condition: service_started }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  spherex-cache:
+  caddy-data:
+  caddy-config:
